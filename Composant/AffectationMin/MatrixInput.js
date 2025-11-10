@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,21 +10,55 @@ export default function AddMenu({ navigation }) {
   const updateField = (field, value) => setMenuItem({ ...menuItem, [field]: value });
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-    });
-    if (!result.canceled) updateField('image', result.assets[0].uri);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaType.Images, // <-- corrigé
+        allowsEditing: true,
+        quality: 1,
+      });
+      if (!result.canceled) {
+        updateField('image', result.assets[0].uri);
+      }
+    } catch (error) {
+      console.log("Erreur ImagePicker:", error);
+      Alert.alert("Erreur", "Impossible de sélectionner l'image");
+    }
   };
 
-  const saveMenu = () => {
+  const saveMenu = async () => {
     if (!menuItem.name || !menuItem.price) {
-      alert("Veuillez remplir le nom et le prix du plat.");
+      Alert.alert("Erreur", "Veuillez remplir le nom et le prix du plat.");
       return;
     }
-    alert(`Plat enregistré:\n${JSON.stringify(menuItem, null, 2)}`);
-    setMenuItem({ name: '', description: '', price: '', image: null });
+
+    try {
+      // Envoi vers ton backend Symfony
+      const formData = {
+        name: menuItem.name,
+        description: menuItem.description,
+        price: menuItem.price,
+        image: menuItem.image,
+      };
+
+      const response = await fetch("http://192.168.43.58:8000/menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        Alert.alert("Succès", "Plat ajouté avec succès !");
+        setMenuItem({ name: '', description: '', price: '', image: null });
+      } else {
+        console.log("Erreur backend:", data);
+        Alert.alert("Erreur", data.error || "Impossible d'ajouter le plat");
+      }
+    } catch (err) {
+      console.log("Erreur API:", err);
+      Alert.alert("Erreur", "Impossible de contacter le serveur");
+    }
   };
 
   return (
@@ -35,7 +69,7 @@ export default function AddMenu({ navigation }) {
     >
       <View style={styles.formCard}>
         {/* Bouton Retour */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate('affectMin')}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="teal" />
           <Text style={styles.backText}>Retour</Text>
         </TouchableOpacity>
