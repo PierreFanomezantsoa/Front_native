@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, Dimensions, Modal, Alert } from 'react-native';
-import Icon from 'react-native-vector-icons/FontAwesome';
+import { FontAwesome } from '@expo/vector-icons'; // ✅ Expo vector icons
 
 export default function MenuCarousel({ navigation }) {
   const scrollRef = useRef();
@@ -45,13 +45,13 @@ export default function MenuCarousel({ navigation }) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="long-arrow-left" size={26} color="white" />
+          <FontAwesome name="long-arrow-left" size={26} color="white" />
         </TouchableOpacity>
 
         <Text style={styles.headerText}>Menu Restaurant</Text>
 
         <TouchableOpacity style={styles.cartBtn} onPress={() => setShowCart(true)}>
-          <Icon name="shopping-cart" size={26} color="white" />
+          <FontAwesome name="shopping-cart" size={26} color="white" />
           {totalItems > 0 && (
             <View style={styles.badge}>
               <Text style={{ color: 'white', fontSize: 12 }}>{totalItems}</Text>
@@ -81,7 +81,7 @@ export default function MenuCarousel({ navigation }) {
             <Text style={styles.desc}>{item.description}</Text>
             <Text style={styles.price}>{item.price} Ar</Text>
             <TouchableOpacity style={styles.orderBtn} onPress={() => addToCart(item)}>
-              <Text style={styles.orderText}>Commander <Icon name="plus" color="white" /></Text>
+              <Text style={styles.orderText}>Commander <FontAwesome name="plus" color="white" /></Text>
             </TouchableOpacity>
           </View>
         ))}
@@ -122,23 +122,20 @@ export default function MenuCarousel({ navigation }) {
 
       {/* Bottom Bar */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.goBack()}>
-          <Icon name="home" size={24} color="teal" />
+        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate("accueil")}>
+          <FontAwesome name="home" size={20} color="teal" />
           <Text style={styles.bottomText}>Accueil</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('menuList')}>
-          <Icon name="list" size={24} color="teal" />
+          <FontAwesome name="list" size={24} color="teal" />
           <Text style={styles.bottomText}>Tables</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('Publications')}>
-          <Icon name="bullhorn" size={24} color="teal" />
+          <FontAwesome name="bullhorn" size={24} color="teal" />
           <Text style={styles.bottomText}>Publication</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('affectMin1')}>
-          <Icon name="cog" size={24} color="teal" />
+          <FontAwesome name="cog" size={24} color="teal" />
           <Text style={styles.bottomText}>Admin</Text>
         </TouchableOpacity>
       </View>

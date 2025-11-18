@@ -40,7 +40,7 @@ export default function AddMenu({ navigation }) {
         image: menuItem.image,
       };
 
-      const response = await fetch("http://192.168.43.58:8000/menu", {
+      const response = await fetch("http://192.168.137.1:8000/menu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),

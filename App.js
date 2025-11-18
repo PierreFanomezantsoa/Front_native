@@ -6,6 +6,7 @@ import AffectationMin from './Composant/AffectationMin/AffectationMin';
 import AffectationMin1 from './Composant/AffectationMin/MatrixInput';
 import Publications from './Composant/AffectationMin/Publication';
 import MenuCards from './Composant/AffectationMin/Menu';
+import Hisorique from './Composant/AffectationMin/Historique';
 // variable constante pour la navigation
 const Stack = createNativeStackNavigator();
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
         <Stack.Screen name="affectMin1" component={AffectationMin1} />
         <Stack.Screen name="Publications" component={Publications} />
         <Stack.Screen name="menuList" component={MenuCards} />
+        <Stack.Screen name="Historique" component={Hisorique} />
       </Stack.Navigator>
     </NavigationContainer>
   );

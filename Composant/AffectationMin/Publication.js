@@ -1,146 +1,262 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import Icon from 'react-native-vector-icons/FontAwesome';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  Image
+} from 'react-native';
+import { FontAwesome } from '@expo/vector-icons'; // ✅ Expo vector icons
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function Publication({ navigation }) {
-  const [enseignants, setEnseignants] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  const loadEnseignants = async () => {
-    try {
-      const res = await fetch("http://192.168.43.58:8000/enseignant"); // IP locale du PC
-      const data = await res.json();
-      setEnseignants(data.enseignants);
-    } catch (error) {
-      console.log("Erreur API:", error);
+  const [publications] = useState([
+    {
+      id: 1,
+      nom: "Pizza 4 Fromages",
+      description: "Mozzarella, cheddar, gruyère, parmesan",
+      prix: 12000,
+      prixPromo: 10000,
+      image: "https://i.imgur.com/2nCt3Sb.jpg"
+    },
+    {
+      id: 2,
+      nom: "Burger Double Steak",
+      description: "Sauce maison + fromage fondu",
+      prix: 15000,
+      prixPromo: 13000,
+      image: "https://i.imgur.com/4fDvT1U.png"
+    },
+    {
+      id: 3,
+      nom: "Frites XXL",
+      description: "Frites croustillantes + sauce",
+      prix: 5000,
+      prixPromo: 4000,
+      image: "https://i.imgur.com/j6y9l9b.png"
+    },
+    {
+      id: 4,
+      nom: "Tacos Poulet",
+      description: "Poulet grillé + fromage",
+      prix: 10000,
+      prixPromo: 9000,
+      image: "https://i.imgur.com/HpXG3V3.png"
     }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadEnseignants();
-  }, []);
+  ]);
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="long-arrow-left" size={26} color="white" />
-        </TouchableOpacity>
-        <Text style={styles.headerText}>Publications et notifications</Text>
-        <View style={{ width: 30 }} />
-      </View>
 
-      {/* Contenu */}
-      {loading ? (
-        <ActivityIndicator size="large" color="teal" style={{ marginTop: 30 }} />
-      ) : (
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          {enseignants.map((e) => (
-            <View key={e.id} style={styles.card}>
-              <Text style={styles.title}>{e.nom}</Text>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Matricule:</Text>
-                <Text style={styles.value}>{e.matricule}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Heures:</Text>
-                <Text style={styles.value}>{e.nombre_heure} h</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Taux horaire:</Text>
-                <Text style={styles.value}>{e.tauxhoraire} Ar</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Prestation:</Text>
-                <Text style={styles.value}>{e.prestation} Ar</Text>
+      {/* HEADER */}
+      <LinearGradient colors={['#008080', '#006666']} style={styles.header}>
+        <Text style={styles.headerText}>Actualités & Promotions</Text>
+
+        <View style={styles.topRight}>
+          <TouchableOpacity style={styles.topIcon}>
+            <FontAwesome name="bell" size={22} color="white" />
+            <View style={styles.badge}><Text style={{ color: 'white', fontSize: 10 }}>3</Text></View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.topIcon} onPress={() => navigation.navigate("Historique")}>
+            <FontAwesome name="history" size={22} color="white" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.topIcon}>
+            <FontAwesome name="shopping-cart" size={22} color="white" />
+            <View style={styles.badge}><Text style={{ color: 'white', fontSize: 10 }}>1</Text></View>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+
+      {/* CONTENU */}
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.sectionTitle}>🔥 Nouveautés</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
+          {publications.map((p) => (
+            <View key={p.id} style={styles.card}>
+              
+              <Image source={{ uri: p.image }} style={styles.image} />
+
+              <View style={styles.cardContent}>
+                <Text style={styles.title}>{p.nom}</Text>
+                <Text style={styles.desc}>{p.description}</Text>
+
+                <View style={styles.prixBox}>
+                  <Text style={styles.newPrice}>{p.prixPromo} Ar</Text>
+                  <Text style={styles.oldPrice}>{p.prix} Ar</Text>
+                </View>
+
+                <TouchableOpacity style={styles.btnPanier}>
+                  <FontAwesome name="shopping-cart" size={20} color="white" />
+                  <Text style={styles.btnText}>Commander</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))}
         </ScrollView>
-      )}
 
-      {/* Bottom Bar */}
+      </ScrollView>
+
+      {/* BOTTOM BAR */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.goBack()}>
-          <Icon name="home" size={24} color="teal" />
+        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate("accueil")}>
+          <FontAwesome name="home" size={22} color="teal" />
           <Text style={styles.bottomText}>Accueil</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('menuList')}>
-          <Icon name="list" size={24} color="teal" />
+          <FontAwesome name="list" size={22} color="teal" />
           <Text style={styles.bottomText}>Tables</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('Publications')}>
-          <Icon name="bullhorn" size={24} color="teal" />
+          <FontAwesome name="bullhorn" size={22} color="teal" />
           <Text style={styles.bottomText}>Publication</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('affectMin1')}>
-          <Icon name="cog" size={24} color="teal" />
+          <FontAwesome name="cog" size={22} color="teal" />
           <Text style={styles.bottomText}>Admin</Text>
         </TouchableOpacity>
       </View>
+
     </View>
   );
 }
 
+// STYLES
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f0f2f5", paddingBottom: 70 },
+  screen: {
+    flex: 1,
+    backgroundColor: '#eef3f7',
+    paddingBottom: 70
+  },
 
   header: {
-    width: "100%",
     height: 90,
-    backgroundColor: "teal",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
     paddingTop: 35,
+    elevation: 5
   },
   headerText: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "bold",
-    textAlign: "center",
-    flex: 1,
+    color: 'white',
+    fontSize: 21,
+    fontWeight: 'bold'
+  },
+  topRight: {
+    flexDirection: 'row'
+  },
+  topIcon: {
+    marginHorizontal: 10,
+    position: 'relative'
+  },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -6,
+    backgroundColor: 'red',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
 
-  scrollContainer: { paddingVertical: 20, alignItems: "center" },
+  container: {
+    paddingVertical: 20,
+    paddingLeft: 10
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    marginTop:10,
+    marginLeft :12,
+    color: '#006666'
+  },
 
   card: {
-    width: "90%",
-    marginBottom: 15,
-    backgroundColor: "#ffffff",
+    width: 320,
+    marginLeft : 15,
+    marginTop:84,
+    marginRight: 25,
+    backgroundColor: '#fff',
     borderRadius: 15,
-    padding: 20,
-    alignItems: "flex-start",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    overflow: 'hidden',
+    elevation: 4,
   },
-  title: { fontSize: 20, fontWeight: "bold", color: "teal", marginBottom: 10 },
+  image: {
+    width: '100%',
+    height: 135
+  },
+  cardContent: {
+    padding: 10
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#006666'
+  },
+  desc: {
+    fontSize: 13,
+    color: '#555',
+    marginTop: 4
+  },
+  prixBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6
+  },
+  newPrice: {
+    fontWeight: 'bold',
+    fontSize: 17,
+    color: 'teal'
+  },
+  oldPrice: {
+    fontSize: 13,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginLeft: 6
+  },
 
-  infoRow: { flexDirection: "row", marginBottom: 5 },
-  label: { fontWeight: "600", color: "#555", width: 120 },
-  value: { color: "#333", flexShrink: 1 },
+  btnPanier: {
+    backgroundColor: 'teal',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding:5,
+    paddingVertical: 6,
+    height:42,
+    borderRadius: 8,
+    justifyContent: 'center',
+    marginTop: 10
+  },
+  btnText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
 
   bottomBar: {
-    width: "100%",
+    width: '100%',
     height: 70,
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    borderTopWidth: 0.5,
-    borderColor: "#ccc",
-    position: "absolute",
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderColor: '#d0d0d0',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    position: 'absolute',
     bottom: 0,
+    elevation: 10
   },
-  bottomBtn: { alignItems: "center" },
-  bottomText: { fontSize: 12, color: "teal", marginTop: 3 },
+  bottomBtn: { alignItems: 'center' },
+  bottomText: { fontSize: 12, color: 'teal', marginTop: 2 }
 });
