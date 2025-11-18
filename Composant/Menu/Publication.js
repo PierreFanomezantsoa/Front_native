@@ -122,7 +122,7 @@ export default function Publication({ navigation }) {
           <Text style={styles.bottomText}>Publication</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('affectMin1')}>
+        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('admin')}>
           <FontAwesome name="cog" size={22} color="teal" />
           <Text style={styles.bottomText}>Admin</Text>
         </TouchableOpacity>

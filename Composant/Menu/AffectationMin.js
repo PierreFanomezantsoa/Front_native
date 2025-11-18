@@ -134,7 +134,7 @@ export default function MenuCarousel({ navigation }) {
           <FontAwesome name="bullhorn" size={24} color="teal" />
           <Text style={styles.bottomText}>Publication</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('affectMin1')}>
+        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('admin')}>
           <FontAwesome name="cog" size={24} color="teal" />
           <Text style={styles.bottomText}>Admin</Text>
         </TouchableOpacity>
