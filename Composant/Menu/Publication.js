@@ -114,12 +114,12 @@ export default function Publication({ navigation }) {
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('menuList')}>
           <FontAwesome name="list" size={22} color="teal" />
-          <Text style={styles.bottomText}>Tables</Text>
+          <Text style={styles.bottomText}>Menus</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('Publications')}>
           <FontAwesome name="bullhorn" size={22} color="teal" />
-          <Text style={styles.bottomText}>Publication</Text>
+          <Text style={styles.bottomText}>Publi.</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate('admin')}>

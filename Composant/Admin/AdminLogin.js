@@ -66,7 +66,7 @@ export default function AdminLogin({ navigation }) {
       </TouchableOpacity>
       <TouchableOpacity style={styles.btnretour} onPress={() => navigation.navigate('menuList')} >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color="#0c0c0cff" />
         ) : (
           <Text style={styles.loginText}>Retour </Text>
         )}
@@ -112,11 +112,11 @@ const styles = StyleSheet.create({
   },
   btnretour: {
     width: '100%',
-    backgroundColor: 'rgba(152, 152, 141, 1)',
+    color :"#100101ff",
     paddingVertical: 15,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 10
   },
-  loginText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
+  loginText: { color: '#095338ff', fontWeight: 'bold', fontSize: 18 }
 });

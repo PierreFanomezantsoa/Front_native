@@ -8,6 +8,7 @@ import Publications from './Composant/Menu/Publication';
 import MenuCards from './Composant/Menu/Menu';
 import Hisorique from './Composant/Menu/Historique';
 import AdminLogin from './Composant/Admin/AdminLogin';
+import CommandList from './Composant/Command/ListeCommande';
 // variable constante pour la navigation
 const Stack = createNativeStackNavigator();
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
         <Stack.Screen name="menuList" component={MenuCards} />
         <Stack.Screen name="Historique" component={Hisorique} />
         <Stack.Screen name="admin" component={AdminLogin} />
+        <Stack.Screen name="listecommande" component={CommandList} />
       </Stack.Navigator>
     </NavigationContainer>
   );

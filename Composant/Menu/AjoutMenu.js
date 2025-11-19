@@ -1,15 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Image, Alert, Modal, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View, Text, FlatList, TextInput, TouchableOpacity,
+  StyleSheet, Image, Alert, Modal, ScrollView, ActivityIndicator,
+  Platform, StatusBar
+} from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 
-const BACKEND_URL = 'http://192.168.137.118:8000';
+// Constantes de style
+const PRIMARY_COLOR = '#008080';
+const ACCENT_COLOR = '#008080';
+const BACKGROUND_COLOR = '#F4F7F9';
+const CARD_BACKGROUND = '#FFFFFF';
+
+const BACKEND_URL = 'http://192.168.137.1:8000'; // À adapter
 
 export default function MenuList({ navigation }) {
   const [menuList, setMenuList] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
-  const [menuItem, setMenuItem] = useState({ id: null, name: '', description: '', price: '', image: null });
+  const [menuItem, setMenuItem] = useState({
+    id: null, name: '', description: '', price: '', image: null
+  });
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -17,7 +29,11 @@ export default function MenuList({ navigation }) {
     try {
       setLoading(true);
       const response = await axios.get(`${BACKEND_URL}/menu`);
-      setMenuList(response.data.menu || []);
+      const formattedMenu = response.data.menu.map(item => ({
+        ...item,
+        price: String(item.price)
+      }));
+      setMenuList(formattedMenu || []);
     } catch {
       Alert.alert('Erreur', 'Impossible de récupérer les plats');
     } finally {
@@ -27,7 +43,9 @@ export default function MenuList({ navigation }) {
 
   useEffect(() => { fetchMenu(); }, []);
 
-  const updateField = (field, value) => setMenuItem({ ...menuItem, [field]: value });
+  const updateField = (field, value) => {
+    setMenuItem({ ...menuItem, [field]: value });
+  };
 
   const pickImage = async () => {
     try {
@@ -43,21 +61,26 @@ export default function MenuList({ navigation }) {
   };
 
   const saveMenu = async () => {
-    if (!menuItem.name || !menuItem.price)
-      return Alert.alert("Erreur", "Veuillez remplir le nom et le prix du plat.");
+    if (!menuItem.name || !menuItem.price || isNaN(parseFloat(menuItem.price)))
+      return Alert.alert("Erreur", "Veuillez remplir le nom et le prix valide du plat.");
 
     try {
+      setLoading(true);
+      const dataToSend = { ...menuItem, price: parseFloat(menuItem.price) };
       if (isEditing)
-        await axios.put(`${BACKEND_URL}/menu/${menuItem.id}`, menuItem);
+        await axios.put(`${BACKEND_URL}/menu/${menuItem.id}`, dataToSend);
       else
-        await axios.post(`${BACKEND_URL}/menu`, menuItem);
+        await axios.post(`${BACKEND_URL}/menu`, dataToSend);
 
       setModalVisible(false);
       setMenuItem({ id: null, name: '', description: '', price: '', image: null });
       setIsEditing(false);
       fetchMenu();
-    } catch {
-      Alert.alert('Erreur', 'Impossible de contacter le serveur');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Erreur', 'Impossible de contacter le serveur ou erreur lors de l\'enregistrement');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -78,35 +101,48 @@ export default function MenuList({ navigation }) {
   };
 
   const editMenu = (item) => {
-    setMenuItem(item);
+    setMenuItem({ ...item, price: String(item.price) }); 
     setIsEditing(true);
     setModalVisible(true);
   };
 
-  // -------------------- TopBar Logout ------------------------
   const handleLogout = () => {
     Alert.alert("Déconnexion", "Voulez-vous vraiment vous déconnecter ?", [
       { text: "Annuler" },
-      { text: "Déconnecter", style: "destructive", onPress: () => navigation.replace("admin") }
+      {
+        text: "Déconnecter",
+        style: "destructive",
+        onPress: () => navigation.replace("admin")
+      }
     ]);
   };
-  // ---------------------------------------------------------
 
   const renderItem = ({ item }) => (
     <View style={styles.menuCard}>
-      {item.image && <Image source={{ uri: item.image }} style={styles.menuImage} />}
-      <View style={{ flex: 1, marginLeft: 10 }}>
-        <Text style={styles.menuName}>{item.name}</Text>
-        {item.description && <Text style={styles.menuDesc}>{item.description}</Text>}
-        <Text style={styles.menuPrice}>${item.price}</Text>
+      {item.image ? (
+        <Image source={{ uri: item.image }} style={styles.menuImage} />
+      ) : (
+        <View style={[styles.menuImage, styles.placeholderImage]}>
+          <Ionicons name="image-outline" size={30} color="#ccc" />
+        </View>
+      )}
+
+      <View style={styles.menuInfo}>
+        <Text style={styles.menuName} numberOfLines={1}>{item.name}</Text>
+        {item.description ? (
+          <Text style={styles.menuDesc} numberOfLines={2}>{item.description}</Text>
+        ) : (
+          <Text style={styles.noDesc}>Pas de description</Text>
+        )}
+        <Text style={styles.menuPrice}>{parseFloat(item.price).toFixed(2)} Ar</Text>
       </View>
 
       <View style={styles.iconRow}>
-        <TouchableOpacity onPress={() => editMenu(item)}>
-          <Ionicons name="create-outline" size={20} color="orange" />
+        <TouchableOpacity style={styles.iconButton} onPress={() => editMenu(item)}>
+          <Ionicons name="create-outline" size={24} color={ACCENT_COLOR} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => deleteMenu(item.id)}>
-          <Ionicons name="trash-outline" size={20} color="red" />
+        <TouchableOpacity style={[styles.iconButton, { marginLeft: 15 }]} onPress={() => deleteMenu(item.id)}>
+          <Ionicons name="trash-outline" size={24} color="#D32F2F" />
         </TouchableOpacity>
       </View>
     </View>
@@ -114,28 +150,41 @@ export default function MenuList({ navigation }) {
 
   return (
     <View style={styles.container}>
-
-      {/* ---------- Top Bar ---------- */}
+      <StatusBar barStyle="light-content" backgroundColor={PRIMARY_COLOR} />
+      
+      {/* Top Bar */}
       <View style={styles.topBar}>
-        <Text style={styles.topBarText}>Admin Page</Text>
-
+        <TouchableOpacity style={styles.orderBtn} onPress={() => navigation.navigate("listecommande")}>
+          <Ionicons name="receipt-outline" size={26} color={CARD_BACKGROUND} />
+        </TouchableOpacity>
+        <Text style={styles.topBarText}>Gestion des Plats</Text>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={28} color="white" />
+          <Ionicons name="log-out-outline" size={28} color={CARD_BACKGROUND} />
         </TouchableOpacity>
       </View>
-      {/* ---------------------------- */}
 
       {loading ? (
-        <ActivityIndicator size="large" color="teal" style={{ marginTop: 50 }} />
+        <ActivityIndicator size="large" color={PRIMARY_COLOR} style={{ marginTop: 50 }} />
       ) : (
         <FlatList
           data={menuList}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
-          ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20 }}>Aucun plat trouvé</Text>}
+          contentContainerStyle={styles.flatListContent}
+          refreshing={loading}
+          onRefresh={fetchMenu}
+          ListEmptyComponent={
+            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 30 }}>
+              <Ionicons name="sad-outline" size={20} color="#555" style={{ marginRight: 5 }} />
+              <Text style={styles.emptyListText}>
+                Aucun plat trouvé. Tirez pour rafraîchir.
+              </Text>
+            </View>
+          }
         />
       )}
 
+      {/* Bouton Ajouter */}
       <TouchableOpacity
         style={styles.addBtn}
         onPress={() => {
@@ -144,171 +193,183 @@ export default function MenuList({ navigation }) {
           setModalVisible(true);
         }}
       >
-        <Text style={styles.addText}>Ajouter un plat</Text>
+        <Ionicons name="add-outline" size={30} color={CARD_BACKGROUND} />
       </TouchableOpacity>
 
-      <Modal visible={modalVisible} animationType="slide" onRequestClose={() => setModalVisible(false)}>
+      {/* Modal */}
+      <Modal 
+        visible={modalVisible} 
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
         <ScrollView contentContainerStyle={styles.modalContainer}>
-          <Text style={styles.title}>{isEditing ? 'Modifier le plat' : 'Ajouter un nouveau plat'}</Text>
+          <Text style={styles.title}>
+            {isEditing ? '🍽️ Modifier le plat' : '✨ Ajouter un nouveau plat'}
+          </Text>
 
+          {/* Nom */}
           <View style={styles.inputContainer}>
-            <Ionicons name="fast-food" size={22} color="teal" style={styles.icon} />
+            <Ionicons name="fast-food" size={22} color={PRIMARY_COLOR} style={styles.icon} />
             <TextInput
               style={styles.input}
-              placeholder="Nom du plat"
+              placeholder="Nom du plat *"
+              placeholderTextColor="#888"
               value={menuItem.name}
               onChangeText={(text) => updateField('name', text)}
             />
           </View>
 
+          {/* Description */}
           <View style={styles.inputContainer}>
-            <MaterialIcons name="description" size={22} color="teal" style={styles.icon} />
+            <MaterialIcons name="description" size={22} color={PRIMARY_COLOR} style={styles.icon} />
             <TextInput
-              style={[styles.input, { height: 80 }]}
+              style={[styles.input, styles.multiLineInput]}
               placeholder="Description"
+              placeholderTextColor="#888"
               value={menuItem.description}
               onChangeText={(text) => updateField('description', text)}
               multiline
             />
           </View>
 
+          {/* Prix */}
           <View style={styles.inputContainer}>
-            <Ionicons name="pricetag" size={22} color="teal" style={styles.icon} />
+            <Ionicons name="pricetag" size={22} color={PRIMARY_COLOR} style={styles.icon} />
             <TextInput
               style={styles.input}
-              placeholder="Prix"
+              placeholder="Prix ($) *"
+              placeholderTextColor="#888"
               keyboardType="numeric"
               value={menuItem.price}
-              onChangeText={(text) => updateField('price', text)}
+              onChangeText={(text) => updateField('price', text.replace(/[^0-9.]/g, ''))}
             />
           </View>
 
+          {/* Image */}
           <TouchableOpacity style={styles.imageBtn} onPress={pickImage}>
-            <Text style={styles.imageText}>{menuItem.image ? "Modifier l'image" : "Ajouter une image"}</Text>
+            <Ionicons name="camera-outline" size={20} color="white" style={{ marginRight: 5 }} />
+            <Text style={styles.imageText}>
+              {menuItem.image ? "Modifier l'image" : "Ajouter une image"}
+            </Text>
           </TouchableOpacity>
 
-          {menuItem.image && <Image source={{ uri: menuItem.image }} style={styles.imagePreview} />}
+          {menuItem.image && (
+            <Image source={{ uri: menuItem.image }} style={styles.imagePreview} />
+          )}
 
-          <TouchableOpacity style={styles.saveBtn} onPress={saveMenu}>
-            <Text style={styles.saveText}>{isEditing ? 'Modifier le plat' : 'Enregistrer le plat'}</Text>
+          {/* Enregistrer */}
+          <TouchableOpacity style={styles.saveBtn} onPress={saveMenu} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.saveText}>
+                {isEditing ? 'Enregistrer les modifications' : 'Ajouter le plat'}
+              </Text>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
+          {/* Annuler */}
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)} disabled={loading}>
             <Text style={styles.cancelText}>Annuler</Text>
           </TouchableOpacity>
+
         </ScrollView>
       </Modal>
     </View>
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
+  container: { flex: 1, backgroundColor: BACKGROUND_COLOR },
 
   topBar: {
-    width: "100%",
-    height: 90,
-    backgroundColor: "teal",
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 40,
+    height: Platform.OS === 'android' ? 90 + StatusBar.currentHeight : 100,
+    backgroundColor: PRIMARY_COLOR,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 15,
-    marginBottom: 20,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
+    elevation: 5,
   },
 
   topBarText: {
-    color: "white",
-    fontSize: 20,
+    color: CARD_BACKGROUND,
+    fontSize: 22,
     fontWeight: "bold",
   },
 
-  logoutBtn: {
-    position: "absolute",
-    right: 15,
-    padding: 5,
-  },
+  orderBtn: { position: "absolute", left: 15, bottom: 10, padding: 8 },
+  logoutBtn: { position: "absolute", right: 15, bottom: 10, padding: 8 },
+
+  flatListContent: { paddingVertical: 10, paddingBottom: 100 },
 
   menuCard: {
     flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-    marginHorizontal: 10,
+    backgroundColor: CARD_BACKGROUND,
+    borderRadius: 15,
+    padding: 15,
+    marginVertical: 7,
+    marginHorizontal: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
     elevation: 5,
     alignItems: "center",
   },
 
-  menuImage: { width: 80, height: 80, borderRadius: 10 },
-  menuName: { fontSize: 18, fontWeight: "bold", color: "teal" },
-  menuDesc: { color: "#555" },
-  menuPrice: { marginTop: 5, color: "green", fontWeight: "bold" },
+  menuImage: { width: 80, height: 80, borderRadius: 10, marginRight: 15 },
+  placeholderImage: { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
 
-  iconRow: { flexDirection: "row", justifyContent: "space-between", width: 70, marginLeft: "auto" },
+  menuInfo: { flex: 1, marginRight: 10 },
+  menuName: { fontSize: 18, fontWeight: "800", color: PRIMARY_COLOR, marginBottom: 2 },
+  menuDesc: { color: "#666", fontSize: 14 },
+  noDesc: { color: "#999", fontSize: 12, fontStyle: 'italic' },
+  menuPrice: { marginTop: 5, color: "#2E8B57", fontWeight: "bold", fontSize: 16 },
+
+  iconRow: { flexDirection: "row", alignItems: 'center', justifyContent: 'flex-end' },
+  iconButton: { padding: 5 },
+
+  emptyListText: { color: '#555', fontSize: 16 },
 
   addBtn: {
-    backgroundColor: "teal",
-    padding: 15,
-    borderRadius: 12,
-    alignItems: "center",
-    margin: 15,
+    position: 'absolute', bottom: 25, right: 25,
+    backgroundColor: PRIMARY_COLOR, width: 60, height: 60,
+    borderRadius: 30, justifyContent: 'center', alignItems: 'center',
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 4.65, elevation: 8,
   },
-  addText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 
-  modalContainer: { padding: 20, backgroundColor: "#FAFAFA", flexGrow: 1 },
-
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "teal",
-    marginBottom: 20,
-    textAlign: "center",
-  },
+  modalContainer: { padding: 20, backgroundColor: BACKGROUND_COLOR, paddingTop: 40, flexGrow: 1 },
+  title: { fontSize: 24, fontWeight: "bold", color: PRIMARY_COLOR, marginBottom: 30, textAlign: "center" },
 
   inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    marginBottom: 15,
-    paddingHorizontal: 10,
-    backgroundColor: "#f9f9f9",
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 10,
+    marginBottom: 15, paddingHorizontal: 10, backgroundColor: CARD_BACKGROUND,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1, shadowRadius: 1, elevation: 2,
   },
-
   icon: { marginRight: 10 },
-
-  input: { flex: 1, paddingVertical: 8, fontSize: 16, color: "#333" },
+  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: "#333" },
+  multiLineInput: { height: 100, textAlignVertical: 'top', paddingVertical: 12 },
 
   imageBtn: {
-    backgroundColor: "teal",
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 15,
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: PRIMARY_COLOR, padding: 15, borderRadius: 10,
+    marginBottom: 15, shadowColor: PRIMARY_COLOR, shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3, shadowRadius: 4, elevation: 5,
   },
+  imageText: { color: CARD_BACKGROUND, fontWeight: "bold", fontSize: 16 },
+  imagePreview: { width: "100%", height: 200, borderRadius: 15, marginBottom: 20, borderWidth: 2, borderColor: PRIMARY_COLOR },
 
-  imageText: { color: "white", fontWeight: "bold", fontSize: 16 },
+  saveBtn: { backgroundColor: PRIMARY_COLOR, padding: 18, borderRadius: 10, alignItems: "center", marginTop: 15, shadowColor: PRIMARY_COLOR, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 5, elevation: 6 },
+  saveText: { color: CARD_BACKGROUND, fontWeight: "bold", fontSize: 18 },
 
-  imagePreview: { width: "100%", height: 200, borderRadius: 15, marginBottom: 15 },
-
-  saveBtn: {
-    backgroundColor: "teal",
-    padding: 15,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 10,
-  },
-
-  saveText: { color: "white", fontWeight: "bold", fontSize: 18 },
-
-  cancelBtn: {
-    backgroundColor: "#ccc",
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 10,
-  },
-
-  cancelText: { color: "black", fontWeight: "bold", fontSize: 16 },
+  cancelBtn: { backgroundColor: '#A9A9A9', padding: 15, borderRadius: 10, alignItems: "center", marginTop: 10, borderWidth: 1, borderColor: '#999' },
+  cancelText: { color: 'white', fontWeight: "bold", fontSize: 16 },
 });
