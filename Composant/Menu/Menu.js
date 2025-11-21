@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator, Image,
   TouchableOpacity, Modal, Dimensions, Alert, Share, Platform, StatusBar
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 
 const { width: screenWidth } = Dimensions.get("window");
@@ -32,12 +33,51 @@ export default function KiosqueMenu({ route, navigation }) {
 
   const scrollRef = useRef();
   const currentIndex = useRef(0);
-  const { tableNumber } = route.params || {};
+
+  /* numero de table dans local storage */
+const [storedTable, setStoredTable] = useState(null);
+
+// Charger tableNumber depuis AsyncStorage une seule fois
+useEffect(() => {
+  const loadTable = async () => {
+    try {
+      const saved = await AsyncStorage.getItem("TABLE_ID");
+      if (saved) {
+        setStoredTable(saved);
+        console.log("Table chargée depuis stockage :", saved);
+      }
+    } catch (e) {
+      console.log("Erreur load table:", e);
+    }
+  };
+  loadTable();
+}, []);
+
+// Sauvegarder si la navigation envoie un nouveau numéro
+useEffect(() => {
+  const saveTable = async () => {
+    try {
+      if (route.params?.tableNumber) {
+        const t = route.params.tableNumber.toString();
+        await AsyncStorage.setItem("TABLE_ID", t);
+        setStoredTable(t);
+        console.log("Table enregistrée :", t);
+      }
+    } catch (e) {
+      console.log("Erreur save table:", e);
+    }
+  };
+  saveTable();
+}, [route.params?.tableNumber]);
+
+// Valeur finale utilisée partout
+const finalTable = storedTable;
+
 
   // --- Charger le menu depuis backend ---
   const loadMenu = async () => {
     try {
-      const res = await fetch("http://192.168.137.1:8000/menu");
+      const res = await fetch("http://192.168.137.118:8000/menu");
       const data = await res.json();
       const loadedMenu = data.menu || [];
       setMenu(loadedMenu);
@@ -103,6 +143,7 @@ export default function KiosqueMenu({ route, navigation }) {
     }
 
     setProcessingPayment(true);
+    
 
     const localTxnId = "TXN" + Math.floor(Math.random() * 1000000);
     const totalAmount = totalPrice;
@@ -122,7 +163,7 @@ export default function KiosqueMenu({ route, navigation }) {
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simuler traitement local
 
       const body = {
-        table_number: tableNumber || 0,
+        table_number: finalTable,
         order_name: `CMD-${localTxnId}`, // Nom de la commande
         total_amount: totalAmount.toFixed(2), // Assurer le format monétaire
         payment_method: method,
@@ -130,7 +171,7 @@ export default function KiosqueMenu({ route, navigation }) {
         items: itemsJson, // items stockés en JSON string
       };
 
-      const response = await fetch('http://192.168.137.1:8000/commande', {
+      const response = await fetch('http://192.168.137.118:8000/commande', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -366,7 +407,7 @@ export default function KiosqueMenu({ route, navigation }) {
                   <View style={styles.textBox}>
                     <Text style={styles.nameList} numberOfLines={1}>{getItemName(e)}</Text>
                     <Text style={styles.descList} numberOfLines={2}>{e.description}</Text>
-                    {tableNumber && <Text style={styles.tableNumber}>Table:  {tableNumber} </Text>}
+                    {finalTable && <Text style={styles.tableNumber}>Table:  {finalTable} </Text>}
                     <Text style={styles.priceList}>{getItemPrice(e).toFixed(2)} Ar</Text>
                   </View>
                   <TouchableOpacity style={styles.orderBtnList} onPress={() => addToCart(e)}>

@@ -18,7 +18,7 @@ const DANGER_COLOR = '#D32F2F'; // Rouge (Supprimer)
 const TEXT_COLOR = '#333333'; // Texte principal
 const SECONDARY_TEXT_COLOR = '#666666'; // Texte secondaire
 
-const BACKEND_URL = 'http://192.168.137.1:8000/commande';
+const BACKEND_URL = 'http://192.168.137.118:8000/commande';
 
 export default function CommandList({ navigation }) {
   const [commandes, setCommandes] = useState([]);

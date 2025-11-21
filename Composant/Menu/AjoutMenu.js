@@ -14,7 +14,7 @@ const ACCENT_COLOR = '#008080';
 const BACKGROUND_COLOR = '#F4F7F9';
 const CARD_BACKGROUND = '#FFFFFF';
 
-const BACKEND_URL = 'http://192.168.137.1:8000'; // À adapter
+const BACKEND_URL = 'http://192.168.137.118:8000'; // À adapter
 
 export default function MenuList({ navigation }) {
   const [menuList, setMenuList] = useState([]);
