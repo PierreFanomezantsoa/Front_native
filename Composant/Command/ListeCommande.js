@@ -1,536 +1,448 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useRef, memo } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Modal, TextInput, Alert, ScrollView, ActivityIndicator,
-  Platform, StatusBar
-} from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import axios from 'axios';
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+  RefreshControl,
+  Platform,
+  StatusBar,
+  Animated,
+} from "react-native";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import io from "socket.io-client";
+import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// 🎨 Palette de Couleurs Améliorée
-const PRIMARY_COLOR = '#008080'; // Sarcelle foncé (Marque)
-const ACCENT_COLOR = '#008080'; // Orange vif (Actions/Danger)
-const BACKGROUND_COLOR = '#F0F2F5'; // Gris très clair (Arrière-plan général)
-const CARD_BACKGROUND = '#FFFFFF'; // Blanc pur (Cartes, Modals)
-const SUCCESS_COLOR = '#2E8B57'; // Vert forêt (Statut 'Terminé/Payé')
-const WARNING_COLOR = '#FFC107'; // Jaune ambré (Statut 'En cours')
-const DANGER_COLOR = '#D32F2F'; // Rouge (Supprimer)
-const TEXT_COLOR = '#333333'; // Texte principal
-const SECONDARY_TEXT_COLOR = '#666666'; // Texte secondaire
+const API_URL = "http://192.168.1.133:3000";
 
-const BACKEND_URL = 'http://192.168.137.118:8000/commande';
+const COLORS = {
+  primary: "#008080",
+  colorQnt: "#d55937ff",
+  success: "#4CAF50",
+  warning: "#FFA500",
+  danger: "#FF4D4D",
+  light: "#F4F7F9",
+  dark: "#1a1a1a",
+  white: "#FFFFFF",
+  gray: "#E0E0E0",
+  text: "#333333",
+};
 
-export default function CommandList({ navigation }) {
+const STATUS_COLORS = {
+  "En attente": "#FFB74D",
+  "En cours": "#2196F3",
+  Prête: "#4CAF50",
+  "Payée": "#00796B",
+  Livrée: "#689F38",
+  Annulée: "#F44336",
+};
+
+export default function CommandeScreen({ navigation }) {
   const [commandes, setCommandes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [commandeItem, setCommandeItem] = useState({
-    id: null,
-    table_number: '',
-    order_name: '',
-    total_amount: '',
-    payment_method: '',
-    status: '',
-    items: '[]', // Assurez-vous que c'est une chaîne JSON valide par défaut
-    created_at: ''
-  });
-  const [isEditing, setIsEditing] = useState(false);
-
-  // FORMATEUR DE DATE
-  const formatDate = (dateString) => {
-    if (!dateString) return "Non défini";
-    const date = new Date(dateString);
-    return date.toLocaleString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  };
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const fetchCommandes = async () => {
     try {
-      setLoading(true);
-      const response = await axios.get(BACKEND_URL);
-      const formattedCommandes = response.data.map(item => ({
-        ...item,
-        table_number: String(item.table_number),
-        total_amount: String(item.total_amount),
-        // Assurez-vous que items est une chaîne JSON avant de le stocker
-        items: item.items ? JSON.stringify(item.items) : '[]',
+      const response = await axios.get(`${API_URL}/commande`);
+      const storedNew = JSON.parse(await AsyncStorage.getItem("newCommandes") || "{}");
+
+      const data = response.data.map((c) => ({
+        ...c,
+        isNew: storedNew[c.id] ? true : false,
       }));
-      setCommandes(formattedCommandes || []);
-    } catch (e) {
-      Alert.alert("Erreur", "Impossible de récupérer les commandes");
+
+      setCommandes(data);
+    } catch (error) {
+      console.log("❌ Erreur de chargement :", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => { fetchCommandes(); }, []);
+  useEffect(() => {
+    fetchCommandes();
 
-  const updateField = (field, value) => {
-    setCommandeItem({ ...commandeItem, [field]: value });
-  };
-
-  const saveCommande = async () => {
-    if (!commandeItem.table_number || !commandeItem.order_name) {
-      return Alert.alert("Erreur", "Table et nom obligatoires");
-    }
-
-    try {
-      setLoading(true);
-
-      let parsedItems = [];
-      try { parsedItems = JSON.parse(commandeItem.items); }
-      catch {
-        Alert.alert("Erreur JSON", "Items n'est pas un JSON valide.");
-        setLoading(false);
-        return;
+    const initSocket = async () => {
+      let userId = await AsyncStorage.getItem("userId");
+      if (!userId) {
+        userId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+        await AsyncStorage.setItem("userId", userId);
       }
 
-      const dataToSend = {
-        table_number: parseInt(commandeItem.table_number),
-        order_name: commandeItem.order_name,
-        total_amount: parseFloat(commandeItem.total_amount) || 0,
-        payment_method: commandeItem.payment_method || 'Inconnu',
-        status: commandeItem.status || 'En cours',
-        created_at: isEditing ? commandeItem.created_at : new Date().toISOString(),
-        items: parsedItems,
+      const socket = io(API_URL, {
+        transports: ["websocket"],
+        reconnection: true,
+        auth: { userId },
+      });
+
+      socket.on("connect", () =>
+        console.log("📡 Socket connecté :", socket.id, "userId:", userId)
+      );
+
+      socket.on("commande:new", async (newCommande) => {
+        const commandeWithFlag = { ...newCommande, isNew: true };
+
+        Animated.sequence([
+          Animated.spring(scaleAnim, { toValue: 1.05, useNativeDriver: true }),
+          Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
+        ]).start();
+
+        setCommandes((prev) => [commandeWithFlag, ...prev]);
+
+        // Mitahiry ao AsyncStorage
+        const storedNew = JSON.parse(await AsyncStorage.getItem("newCommandes") || "{}");
+        storedNew[newCommande.id] = Date.now();
+        await AsyncStorage.setItem("newCommandes", JSON.stringify(storedNew));
+      });
+
+      socket.on("commande:update", (updatedCommande) => {
+        setCommandes((prev) =>
+          prev.map((c) =>
+            c.id === updatedCommande.id ? { ...updatedCommande, isNew: c.isNew || false } : c
+          )
+        );
+      });
+
+      socket.on("commande:delete", (id) => {
+        setCommandes((prev) => prev.filter((c) => c.id !== id));
+      });
+
+      return () => {
+        socket.disconnect();
+        console.log("📴 Socket déconnecté");
       };
+    };
 
-      if (isEditing) {
-        await axios.put(`${BACKEND_URL}/${commandeItem.id}`, dataToSend);
-      } else {
-        await axios.post(BACKEND_URL, dataToSend);
+    initSocket();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchCommandes();
+  };
+
+  const filteredCommandes = commandes.filter((item) => {
+    if (filter === "all") return true;
+    if (filter === "new") return item.isNew;
+    if (filter === "pending") return item.status !== "Livrée";
+    return true;
+  });
+
+  const getStatusIcon = (status) => {
+    const icons = {
+      "En attente": "clock-outline",
+      "En cours": "chef-hat",
+      Prête: "check-circle-outline",
+      "Payée": "credit-card",
+      Livrée: "truck-check",
+      Annulée: "close-circle-outline",
+    };
+    return icons[status] || "help-circle-outline";
+  };
+
+  // -------------------- Components --------------------
+  const Header = () => (
+    <View style={styles.headerContainer}>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.headerTitle}>📦 Commandes</Text>
+        <Text style={styles.headerSubtitle}>
+          {filteredCommandes.length} commande{filteredCommandes.length > 1 ? "s" : ""}
+        </Text>
+      </View>
+      {commandes.some((c) => c.isNew) && (
+        <View style={styles.newBadgeHeader}>
+          <Text style={styles.newBadgeHeaderText}>
+            {commandes.filter((c) => c.isNew).length} 🆕
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const EmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialCommunityIcons name="inbox-multiple-outline" size={80} color={COLORS.gray} />
+      <Text style={styles.emptyText}>Aucune commande</Text>
+      <Text style={styles.emptySubtext}>Les commandes apparaîtront ici</Text>
+    </View>
+  );
+
+  const CommandeCard = memo(({ item }) => {
+    const items = (() => {
+      try {
+        return typeof item.items === "string" ? JSON.parse(item.items) : item.items;
+      } catch {
+        return [];
       }
+    })();
 
-      setModalVisible(false);
-      setCommandeItem({ id: null, table_number: '', order_name: '', total_amount: '', payment_method: '', status: '', items: '[]', created_at: '' });
-      setIsEditing(false);
-      fetchCommandes();
-    } catch (e) {
-      Alert.alert("Erreur", "Enregistrement impossible");
-    } finally {
-      setLoading(false);
-    }
-  };
+    const handleValidate = async () => {
+      setCommandes((prev) =>
+        prev.map((c) => (c.id === item.id ? { ...c, isNew: false } : c))
+      );
 
-  const deleteCommande = (id) => {
-    Alert.alert('Confirmation', 'Supprimer cette commande ?', [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer', style: 'destructive',
-        onPress: async () => {
-          try {
-            setLoading(true);
-            await axios.delete(`${BACKEND_URL}/${id}`);
-            fetchCommandes();
-          } catch {
-            Alert.alert("Erreur", "Suppression impossible");
-          } finally {
-            setLoading(false);
-          }
-        }
-      }
-    ]);
-  };
-
-  const editCommande = (item) => {
-    setCommandeItem({
-      ...item,
-      table_number: String(item.table_number),
-      total_amount: String(item.total_amount),
-      items: item.items ? JSON.stringify(item.items) : '[]',
-    });
-    setIsEditing(true);
-    setModalVisible(true);
-  };
-
-  const getStatusStyle = (status) => {
-    const lower = status.toLowerCase();
-    if (lower.includes('terminé') || lower.includes('payé'))
-      return { color: SUCCESS_COLOR, borderColor: SUCCESS_COLOR };
-    if (lower.includes('annulé') || lower.includes('echec'))
-      return { color: DANGER_COLOR, borderColor: DANGER_COLOR };
-    return { color: WARNING_COLOR, borderColor: WARNING_COLOR };
-  };
-
-  const renderItem = ({ item }) => {
-    const statusStyle = getStatusStyle(item.status);
+      const stored = JSON.parse(await AsyncStorage.getItem("newCommandes") || "{}");
+      delete stored[item.id];
+      await AsyncStorage.setItem("newCommandes", JSON.stringify(stored));
+    };
 
     return (
-      <View style={styles.card}>
-        <View style={styles.cardInfo}>
-
-          {/* Ligne 1: Titre et Table */}
-          <View style={styles.row}>
-            <Text style={styles.title} numberOfLines={1}>
-              <Ionicons name="receipt-outline" size={18} color={PRIMARY_COLOR} /> {item.order_name}
-            </Text>
-            <View style={styles.tableBadge}>
-              <Text style={styles.tableNumber}>Table {item.table_number}</Text>
+      <Animated.View
+        style={[
+          styles.cardContainer,
+          { transform: [{ scale: item.isNew ? scaleAnim : 1 }] },
+        ]}
+      >
+        <View
+          style={[
+            styles.card,
+            item.isNew && styles.cardNew,
+            { borderLeftColor: STATUS_COLORS[item.status] || COLORS.primary },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={styles.headerLeft}>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: STATUS_COLORS[item.status] || COLORS.primary },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={getStatusIcon(item.status)}
+                  size={16}
+                  color={COLORS.white}
+                />
+              </View>
+              <View>
+                <Text style={styles.commandeId}>Commande #{item.id}</Text>
+                {item.order_number && <Text style={styles.orderNumber}>{item.order_number}</Text>}
+              </View>
             </View>
+            {item.isNew && (
+              <View style={styles.newBadge}>
+                <Ionicons name="star" size={14} color={COLORS.white} />
+                <Text style={styles.newBadgeText}>Nouveau</Text>
+              </View>
+            )}
           </View>
 
-          {/* Ligne 2: Montant et Statut */}
-          <View style={[styles.row, { marginTop: 8, marginBottom: 5 }]}>
-            <Text style={styles.totalAmount}>
-              {parseFloat(item.total_amount).toFixed(2)} Ar
-            </Text>
-            <View style={[styles.statusBadge, { borderColor: statusStyle.borderColor }]}>
-              <Text style={[styles.statusText, { color: statusStyle.color }]}>{item.status}</Text>
+          <View style={styles.cardBody}>
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <MaterialCommunityIcons
+                  name="table-furniture"
+                  size={18}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.infoLabel}>Table {item.table_number}</Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Ionicons name="cash" size={18} color={COLORS.success} />
+                <Text style={[styles.infoLabel, { fontWeight: "700", color: COLORS.success }]}>
+                  {item.total_amount} Ar
+                </Text>
+              </View>
             </View>
+
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <MaterialCommunityIcons
+                  name="credit-card-multiple"
+                  size={18}
+                  color={COLORS.warning}
+                />
+                <Text style={styles.infoLabel}>{item.payment_method}</Text>
+              </View>
+              <View style={styles.infoItem}>
+                <MaterialCommunityIcons
+                  name="check-decagram"
+                  size={18}
+                  color={STATUS_COLORS[item.status] || COLORS.primary}
+                />
+                <Text style={[styles.infoLabel, { fontWeight: "600" }]}>{item.status}</Text>
+              </View>
+            </View>
+
+            {items.length > 0 && (
+              <View style={styles.itemsSection}>
+                <Text style={styles.itemsTitle}>📦 Articles ({items.length})</Text>
+                {items.slice(0, 3).map((product, idx) => (
+                  <View key={idx} style={styles.itemRow}>
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {product.name}
+                    </Text>
+                    <Text style={styles.itemQty}>( x {product.qty} )</Text>
+                    <Text style={styles.itemPrice}>
+                      {(product.price * product.qty).toFixed(0)} Ar
+                    </Text>
+                  </View>
+                ))}
+                {items.length > 3 && (
+                  <Text style={styles.moreItems}>+{items.length - 3} articles</Text>
+                )}
+              </View>
+            )}
+
+            <View style={styles.footer}>
+              <Ionicons name="calendar" size={14} color={COLORS.gray} />
+              <Text style={styles.date}>{new Date(item.created_at).toLocaleString("fr-FR")}</Text>
+            </View>
+
+            {item.isNew && (
+              <TouchableOpacity
+                onPress={handleValidate}
+                style={{
+                  marginTop: 10,
+                  backgroundColor: COLORS.success,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: COLORS.white, fontWeight: "700" }}>✅ Valider</Text>
+              </TouchableOpacity>
+            )}
           </View>
-
-          {/* Ligne 3: Détails (Items et Paiement) */}
-          <View style={styles.rowDetail}>
-            <Text style={styles.detailText}>
-              <Ionicons name="fast-food-outline" size={14} color={SECONDARY_TEXT_COLOR} /> {JSON.parse(item.items).length} plat(s)
-            </Text>
-            <Text style={styles.detailText}>
-              <MaterialIcons name="credit-card" size={14} color={SECONDARY_TEXT_COLOR} /> {item.payment_method || 'Inconnu'}
-            </Text>
-          </View>
-
-          {/* Ligne 4: DATE */}
-          <Text style={styles.detailDate}>
-            <Ionicons name="time-outline" size={12} color="#888" /> Commandé à: {formatDate(item.created_at)}
-          </Text>
-
         </View>
-
-        {/* Actions */}
-        <View style={styles.iconColumn}>
-          <TouchableOpacity onPress={() => editCommande(item)} style={[styles.iconBtn, { backgroundColor: PRIMARY_COLOR + '15' }]}>
-            <Ionicons name="create-outline" size={24} color={PRIMARY_COLOR} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteCommande(item.id)} style={[styles.iconBtn, { backgroundColor: DANGER_COLOR + '15' }]}>
-            <Ionicons name="trash-outline" size={24} color={DANGER_COLOR} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      </Animated.View>
     );
-  };
+  });
 
+  // -------------------- RENDER --------------------
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={PRIMARY_COLOR} />
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <Header />
 
-      {/* Barre Supérieure */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back-outline" size={26} color={CARD_BACKGROUND} />
-        </TouchableOpacity>
-        <Text style={styles.topBarText}>Gestion des Commandes</Text>
+      <View style={styles.filterContainer}>
+        {["all", "new", "pending"].map((f) => (
+          <TouchableOpacity
+            key={f}
+            onPress={() => setFilter(f)}
+            style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
+          >
+            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+              {f === "all" ? "Toutes" : f === "new" ? "Nouvelles" : "En cours"}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      {/* Liste / Indicateur de chargement */}
-      {loading && commandes.length === 0 ? (
-        <ActivityIndicator size="large" color={PRIMARY_COLOR} style={{ marginTop: 40 }} />
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loaderText}>Chargement des commandes...</Text>
+        </View>
+      ) : filteredCommandes.length === 0 ? (
+        <EmptyState />
       ) : (
         <FlatList
-          data={commandes}
+          data={filteredCommandes}
           keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={styles.flatListContent}
-          refreshing={loading}
-          onRefresh={fetchCommandes}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyList}>
-              <Ionicons name="sad-outline" size={50} color={SECONDARY_TEXT_COLOR} />
-              <Text style={styles.emptyText}>Aucune commande trouvée.</Text>
-              <Text style={styles.emptySubText}>Appuyez sur '+' pour ajouter.</Text>
-            </View>
-          )}
+          renderItem={({ item }) => <CommandeCard item={item} />}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[COLORS.primary]}
+              tintColor={COLORS.primary}
+            />
+          }
         />
       )}
-
-      {/* Bouton Ajouter */}
-      <TouchableOpacity
-        style={styles.addBtn}
-        onPress={() => {
-          setIsEditing(false);
-          setCommandeItem({
-            id: null, table_number: '', order_name: '', total_amount: '',
-            payment_method: 'Espèces', status: 'En cours', items: '[]',
-            created_at: new Date().toISOString()
-          });
-          setModalVisible(true);
-        }}
-      >
-        <Ionicons name="add-outline" size={30} color={CARD_BACKGROUND} />
-      </TouchableOpacity>
-
-      {/* Modal d'ajout/édition */}
-      <Modal visible={modalVisible} animationType="slide" onRequestClose={() => setModalVisible(false)}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {isEditing ? "Modifier la commande" : "Nouvelle commande"}
-            </Text>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <Ionicons name="close-circle-outline" size={30} color={DANGER_COLOR} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalScroll}>
-
-            {/* NOM */}
-            <Text style={styles.inputLabel}>Nom de la commande *</Text>
-            <View style={styles.inputGroup}>
-              <Ionicons name="person-circle-outline" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder="Ex: Table 5 - Famille Dupont"
-                value={commandeItem.order_name}
-                onChangeText={text => updateField('order_name', text)}
-                style={styles.input}
-              />
-            </View>
-
-            {/* TABLE */}
-            <Text style={styles.inputLabel}>Numéro de table *</Text>
-            <View style={styles.inputGroup}>
-              <Ionicons name="restaurant-outline" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder="Ex: 5"
-                value={commandeItem.table_number}
-                onChangeText={text => updateField('table_number', text.replace(/[^0-9]/g, ''))}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-
-            {/* MONTANT */}
-            <Text style={styles.inputLabel}>Montant total (Ar)</Text>
-            <View style={styles.inputGroup}>
-              <Ionicons name="cash-outline" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder="Ex: 150000.50"
-                value={commandeItem.total_amount}
-                onChangeText={text => updateField('total_amount', text.replace(/[^0-9.]/g, ''))}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-            </View>
-
-            {/* PAIEMENT */}
-            <Text style={styles.inputLabel}>Moyen de paiement</Text>
-            <View style={styles.inputGroup}>
-              <MaterialIcons name="payment" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder="Ex: Espèces, Carte, MVola..."
-                value={commandeItem.payment_method}
-                onChangeText={text => updateField('payment_method', text)}
-                style={styles.input}
-              />
-            </View>
-
-            {/* STATUT */}
-            <Text style={styles.inputLabel}>Statut de la commande</Text>
-            <View style={styles.inputGroup}>
-              <Ionicons name="pulse-outline" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder="Ex: En cours, Terminé, Payé..."
-                value={commandeItem.status}
-                onChangeText={text => updateField('status', text)}
-                style={styles.input}
-              />
-            </View>
-
-            {/* ITEMS */}
-            <Text style={styles.inputLabel}>Détails des Items (JSON)</Text>
-            <View style={styles.inputGroup}>
-              <Ionicons name="code-slash-outline" size={22} color={PRIMARY_COLOR} style={styles.inputIcon} />
-              <TextInput
-                placeholder='Ex: [{"plat": "Pizza", "qte": 1}]'
-                value={commandeItem.items}
-                onChangeText={text => updateField('items', text)}
-                style={[styles.input, styles.textArea]}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
-
-            {/* Boutons d'action */}
-            <TouchableOpacity style={styles.saveBtn} onPress={saveCommande} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> :
-                <Text style={styles.saveText}>{isEditing ? "Mettre à jour" : "Ajouter"}</Text>}
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.cancelBtn, { marginTop: 10, marginBottom: 30 }]} onPress={() => setModalVisible(false)} disabled={loading}>
-              <Text style={styles.cancelText}>Annuler</Text>
-            </TouchableOpacity>
-
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 }
 
-// 📐 Styles Améliorés
+// -------------------- Styles --------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BACKGROUND_COLOR },
-
-  // --- Barre Supérieure ---
-  topBar: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-    height: Platform.OS === 'android' ? 90 + StatusBar.currentHeight : 100,
-    backgroundColor: PRIMARY_COLOR,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingBottom: 15,
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
-    elevation: 3,
+  container: { flex: 1, backgroundColor: COLORS.light },
+  headerContainer: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 15,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight + 15 : 15,
+    paddingBottom: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
   },
-  topBarText: { color: CARD_BACKGROUND, fontSize: 22, fontWeight: '900' },
-  backBtn: { position: "absolute", left: 15, bottom: 15, padding: 5 },
-
-  // --- Liste et Vues Vides ---
-  flatListContent: { paddingVertical: 10, paddingBottom: 100 },
-  emptyList: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 100,
-    padding: 20,
-    backgroundColor: CARD_BACKGROUND,
-    marginHorizontal: 20,
+  backBtn: {
+    width: 44,
+    height: 44,
     borderRadius: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  emptyText: { fontSize: 18, color: TEXT_COLOR, marginTop: 15, fontWeight: 'bold' },
-  emptySubText: { fontSize: 14, color: SECONDARY_TEXT_COLOR, marginTop: 5 },
-
-  // --- Carte d'Item ---
-  card: {
-    flexDirection: 'row',
-    backgroundColor: CARD_BACKGROUND,
-    marginHorizontal: 15,
-    marginVertical: 8,
-    borderRadius: 12,
-    padding: 15,
-    // Ombre douce pour un effet 'flottant'
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  cardInfo: { flex: 1, marginRight: 15 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rowDetail: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
-
-  title: { fontWeight: '800', fontSize: 18, color: TEXT_COLOR, flex: 1, marginRight: 10 },
-  tableBadge: {
-    backgroundColor: PRIMARY_COLOR + '30',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tableNumber: { fontWeight: 'bold', fontSize: 14, color: PRIMARY_COLOR },
-  totalAmount: { fontWeight: '800', fontSize: 18, color: SUCCESS_COLOR },
-
-  detailText: { fontSize: 13, color: SECONDARY_TEXT_COLOR, flex: 1 },
-  detailDate: { fontSize: 12, color: '#888', marginTop: 5, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8 },
-
-  statusBadge: {
+  headerTitle: { fontSize: 28, fontWeight: "800", color: COLORS.white },
+  headerSubtitle: { fontSize: 14, color: "rgba(255,255,255,0.7)", marginTop: 4 },
+  newBadgeHeader: {
+    backgroundColor: COLORS.success,
+    borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 15,
-    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  statusText: { fontSize: 12, fontWeight: 'bold' },
-
-  iconColumn: {
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingLeft: 10,
-    borderLeftWidth: 1,
-    borderLeftColor: '#eee',
-  },
-  iconBtn: {
-    padding: 8,
-    borderRadius: 10,
-    marginVertical: 5,
-  },
-
-  // --- Bouton Flottant (Ajouter) ---
-  addBtn: {
-    position: 'absolute',
-    bottom: 25,
-    right: 25,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: ACCENT_COLOR, // Utilisation de l'ACCENT pour l'action principale
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 8,
-    shadowColor: ACCENT_COLOR,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-  },
-
-  // --- Modal (Formulaire) ---
-  modalContainer: { flex: 1, backgroundColor: BACKGROUND_COLOR, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 20 },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
+  newBadgeHeaderText: { color: COLORS.white, fontWeight: "700", fontSize: 12 },
+  filterContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    gap: 10,
+    backgroundColor: COLORS.white,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
-    backgroundColor: CARD_BACKGROUND,
+    borderBottomColor: COLORS.gray,
   },
-  modalScroll: { paddingHorizontal: 20, paddingTop: 10 },
-  modalTitle: { fontSize: 24, fontWeight: 'bold', color: PRIMARY_COLOR },
-
-  inputLabel: {
-    fontSize: 14,
-    color: PRIMARY_COLOR,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    marginTop: 10
-  },
-  inputGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    backgroundColor: CARD_BACKGROUND,
-    marginBottom: 5,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
-  },
-  inputIcon: { marginRight: 10 },
-  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: TEXT_COLOR },
-  textArea: { height: 100, paddingVertical: 12 },
-
-  saveBtn: {
-    backgroundColor: PRIMARY_COLOR,
-    padding: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 20,
-    elevation: 3,
-  },
-  saveText: { color: "#fff", fontWeight: 'bold', fontSize: 18 },
-
-  cancelBtn: { padding: 16, borderRadius: 10, alignItems: 'center', backgroundColor: SECONDARY_TEXT_COLOR, marginTop: 10, elevation: 3 },
-  cancelText: { color: "#fff", fontSize: 16, fontWeight: 'bold' }
+  filterBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.gray },
+  filterBtnActive: { backgroundColor: COLORS.primary },
+  filterText: { fontSize: 13, fontWeight: "600", color: COLORS.text },
+  filterTextActive: { color: COLORS.white },
+  loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loaderText: { marginTop: 10, color: COLORS.text, fontWeight: "500" },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 30 },
+  emptyText: { fontSize: 18, fontWeight: "bold", color: COLORS.text, marginTop: 15 },
+  emptySubtext: { fontSize: 14, color: COLORS.gray, marginTop: 5 },
+  listContent: { paddingHorizontal: 12, paddingVertical: 10 },
+  cardContainer: { marginBottom: 12 },
+  card: { backgroundColor: COLORS.white, borderRadius: 14, borderLeftWidth: 5, overflow: "hidden", elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+  cardNew: { backgroundColor: "rgba(76, 175, 80, 0.05)" },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 15, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.gray },
+  headerLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 12 },
+  statusBadge: { width: 36, height: 36, borderRadius: 10, justifyContent: "center", alignItems: "center" },
+  commandeId: { fontSize: 15, fontWeight: "700", color: COLORS.dark },
+  orderNumber: { fontSize: 12, color: COLORS.gray, marginTop: 2 },
+  newBadge: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.success, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, gap: 4 },
+  newBadgeText: { color: COLORS.white, fontWeight: "600", fontSize: 12 },
+  cardBody: { padding: 15, gap: 10 },
+  infoRow: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  infoItem: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,128,128,0.05)", paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8 },
+  infoLabel: { fontSize: 13, color: COLORS.text, fontWeight: "500", flex: 1 },
+  itemsSection: { marginTop: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.gray },
+  itemsTitle: { fontSize: 12, fontWeight: "700", color: COLORS.text, marginBottom: 8 },
+  itemRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 4, paddingVertical: 6, paddingHorizontal: 8, backgroundColor: COLORS.light, borderRadius: 6 },
+  itemName: { flex: 1, fontSize: 12, color: COLORS.text, fontWeight: "500" },
+  itemQty: { fontSize: 12, fontWeight: "600", color: COLORS.colorQnt, marginHorizontal: 6 },
+  itemPrice: { fontSize: 12, fontWeight: "700", color: COLORS.success },
+  moreItems: { fontSize: 11, color: COLORS.primary, fontWeight: "600", marginTop: 6 },
+  footer: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  date: { fontSize: 12, color: COLORS.gray, fontStyle: "italic" },
+  actionButtons: { flexDirection: "row", borderTopWidth: 1, borderTopColor: COLORS.gray, padding: 0 },
+  actionBtn: { flex: 1, paddingVertical: 12, justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 6 },
+  viewBtn: { borderRightWidth: 1, borderRightColor: COLORS.gray },
+  viewBtnText: { fontSize: 13, fontWeight: "600", color: COLORS.primary },
+  moreBtn: { justifyContent: "center", alignItems: "center" },
 });

@@ -30,71 +30,78 @@ export default function KiosqueMenu({ route, navigation }) {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [showNotif, setShowNotif] = useState(false);
+  const [storedTable, setStoredTable] = useState(null);
 
   const scrollRef = useRef();
   const currentIndex = useRef(0);
 
-  /* numero de table dans local storage */
-const [storedTable, setStoredTable] = useState(null);
-
-// Charger tableNumber depuis AsyncStorage une seule fois
-useEffect(() => {
-  const loadTable = async () => {
-    try {
-      const saved = await AsyncStorage.getItem("TABLE_ID");
-      if (saved) {
-        setStoredTable(saved);
-        console.log("Table chargée depuis stockage :", saved);
+  // Charger tableNumber depuis AsyncStorage une seule fois
+  useEffect(() => {
+    const loadTable = async () => {
+      try {
+        const saved = await AsyncStorage.getItem("TABLE_ID");
+        if (saved) {
+          setStoredTable(saved);
+          console.log("Table chargée depuis stockage :", saved);
+        }
+      } catch (e) {
+        console.log("Erreur load table:", e);
       }
-    } catch (e) {
-      console.log("Erreur load table:", e);
-    }
-  };
-  loadTable();
-}, []);
+    };
+    loadTable();
+  }, []);
 
-// Sauvegarder si la navigation envoie un nouveau numéro
-useEffect(() => {
-  const saveTable = async () => {
-    try {
-      if (route.params?.tableNumber) {
-        const t = route.params.tableNumber.toString();
-        await AsyncStorage.setItem("TABLE_ID", t);
-        setStoredTable(t);
-        console.log("Table enregistrée :", t);
+  // Sauvegarder si la navigation envoie un nouveau numéro
+  useEffect(() => {
+    const saveTable = async () => {
+      try {
+        if (route.params?.tableNumber) {
+          const t = route.params.tableNumber.toString();
+          await AsyncStorage.setItem("TABLE_ID", t);
+          setStoredTable(t);
+          console.log("Table enregistrée :", t);
+        }
+      } catch (e) {
+        console.log("Erreur save table:", e);
       }
-    } catch (e) {
-      console.log("Erreur save table:", e);
-    }
-  };
-  saveTable();
-}, [route.params?.tableNumber]);
+    };
+    saveTable();
+  }, [route.params?.tableNumber]);
 
-// Valeur finale utilisée partout
-const finalTable = storedTable;
-
-
-  // --- Charger le menu depuis backend ---
+  // Charger le menu depuis backend
   const loadMenu = async () => {
     try {
-      const res = await fetch("http://192.168.137.118:8000/menu");
+      const res = await fetch("http://192.168.1.133:3000/menus");
+      console.log('Status:', res.status);
+      if (!res.ok) {
+        throw new Error(`Erreur HTTP ${res.status}`);
+      }
       const data = await res.json();
-      const loadedMenu = data.menu || [];
-      setMenu(loadedMenu);
-      const uniqueCategories = ['Tout', ...new Set(loadedMenu.map(getItemCategory))];
-      setCategories(uniqueCategories);
+      
+      // Vérifier si les données sont valides
+      if (Array.isArray(data)) {
+        setMenu(data);
+        // Extraire les catégories uniques
+        const uniqueCategories = ['Tout', ...new Set(data.map(item => getItemCategory(item)))];
+        setCategories(uniqueCategories);
+      } else if (data.menus && Array.isArray(data.menus)) {
+        setMenu(data.menus);
+        const uniqueCategories = ['Tout', ...new Set(data.menus.map(item => getItemCategory(item)))];
+        setCategories(uniqueCategories);
+      }
+      setLoading(false);
     } catch (err) {
-      console.error("Erreur lors du chargement du menu :", err);
-      Alert.alert("Erreur réseau", "Impossible de charger le menu.");
-      setNotifications(prev => [{ id: Date.now(), message: "Erreur chargement menu", date: new Date().toLocaleString() }, ...prev]);
-    } finally {
+      console.error('Erreur fetch:', err);
+      Alert.alert("Erreur", "Impossible de charger le menu");
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadMenu(); }, []);
+  useEffect(() => {
+    loadMenu();
+  }, []);
 
-  // --- Ajouter au panier ---
+  // Ajouter au panier
   const addToCart = (item) => {
     setCart(prevCart => {
       const existing = prevCart.find(c => c.item.id === item.id);
@@ -116,7 +123,7 @@ const finalTable = storedTable;
   const updateCartItemQuantity = (itemId, change) => {
     setCart(prevCart => {
       const newCart = prevCart.map(c => 
-        c.item.id === itemId ? { ...c, qty: c.qty + change } : c
+        c.item.id === itemId ? { ...c, qty: Math.max(1, c.qty + change) } : c
       ).filter(c => c.qty > 0);
       return newCart;
     });
@@ -124,7 +131,7 @@ const finalTable = storedTable;
 
   const totalPrice = cart.reduce((sum, c) => sum + getItemPrice(c.item) * c.qty, 0);
 
-  // --- Fonction utilitaire pour formater items ---
+  // Fonction utilitaire pour formater items
   const buildItemsPayload = (cartItems) => {
     const itemsArray = cartItems.map(c => ({
       name: getItemName(c.item),
@@ -136,20 +143,31 @@ const finalTable = storedTable;
     return { itemsArray, itemsJson: json };
   };
 
-  // --- Paiement et POST commande ---
+  // Paiement et POST commande
   const handlePayment = async (method) => {
     if (cart.length === 0) {
-      return Alert.alert("Panier vide !", "Veuillez ajouter des articles avant de payer.");
+      Alert.alert("Panier vide !", "Veuillez ajouter des articles avant de payer.");
+      return;
+    }
+
+    if (!storedTable) {
+      Alert.alert("Erreur", "Le numéro de table n'est pas défini.");
+      return;
     }
 
     setProcessingPayment(true);
-    
 
     const localTxnId = "TXN" + Math.floor(Math.random() * 1000000);
     const totalAmount = totalPrice;
     
     // Construire reçu local (optimiste)
-    const optimisticReceipt = { id: localTxnId, date: new Date().toLocaleString(), method, amount: totalAmount, items: cart };
+    const optimisticReceipt = { 
+      id: localTxnId, 
+      date: new Date().toLocaleString(), 
+      method, 
+      amount: totalAmount, 
+      items: cart 
+    };
     setReceipt(optimisticReceipt);
 
     // Préparer payload
@@ -163,15 +181,15 @@ const finalTable = storedTable;
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simuler traitement local
 
       const body = {
-        table_number: finalTable,
-        order_name: `CMD-${localTxnId}`, // Nom de la commande
-        total_amount: totalAmount.toFixed(2), // Assurer le format monétaire
+        table_number: storedTable,
+        order_name: `CMD-${localTxnId}`,
+        total_amount: totalAmount.toFixed(2),
         payment_method: method,
         status: 'Payée',
-        items: itemsJson, // items stockés en JSON string
+        items: itemsJson,
       };
 
-      const response = await fetch('http://192.168.137.118:8000/commande', {
+      const response = await fetch('http://192.168.1.133:3000/commande', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -184,18 +202,34 @@ const finalTable = storedTable;
       let result;
       try {
         result = text ? JSON.parse(text) : {};
-      } catch (e) { result = { message: text }; }
+      } catch (e) { 
+        result = { message: text }; 
+      }
 
       if (!response.ok) {
         console.error('Erreur backend:', response.status, result);
         const serverMsg = result?.error || result?.message || `Erreur serveur (${response.status})`;
         Alert.alert("Erreur commande", serverMsg);
-        setNotifications(prev => [{ id: Date.now(), message: `Erreur commande: ${serverMsg}`, date: new Date().toLocaleString() }, ...prev]);
+        setNotifications(prev => [
+          { 
+            id: Date.now(), 
+            message: `Erreur commande: ${serverMsg}`, 
+            date: new Date().toLocaleString() 
+          }, 
+          ...prev
+        ]);
       } else {
         const backendId = (result && (result.commande_id || result.id || result.commande?.id)) || null;
         setReceipt({ ...optimisticReceipt, id: backendId || optimisticReceipt.id });
 
-        setNotifications(prev => [{ id: Date.now(), message: `Commande enregistrée (ID: ${backendId || 'local'})`, date: new Date().toLocaleString() }, ...prev]);
+        setNotifications(prev => [
+          { 
+            id: Date.now(), 
+            message: `Commande enregistrée (ID: ${backendId || 'local'})`, 
+            date: new Date().toLocaleString() 
+          }, 
+          ...prev
+        ]);
 
         Alert.alert("Succès", `Commande envoyée pour ${totalAmount.toFixed(2)} Ar !`);
         setCart([]); // Vider le panier
@@ -206,13 +240,20 @@ const finalTable = storedTable;
       } else {
         Alert.alert("Erreur", "Une erreur est survenue lors de l'envoi de la commande.");
       }
-      setNotifications(prev => [{ id: Date.now(), message: "Échec envoi commande", date: new Date().toLocaleString() }, ...prev]);
+      setNotifications(prev => [
+        { 
+          id: Date.now(), 
+          message: "Échec envoi commande", 
+          date: new Date().toLocaleString() 
+        }, 
+        ...prev
+      ]);
     } finally {
       setProcessingPayment(false);
     }
   };
 
-  // --- Partager reçu ---
+  // Partager reçu
   const shareReceipt = async () => {
     if (!receipt) return;
     const text =
@@ -221,10 +262,14 @@ const finalTable = storedTable;
 
     try {
       await Share.share({ message: text });
-    } catch (err) { console.error("Erreur de partage :", err); }
+    } catch (err) { 
+      console.error("Erreur de partage :", err); 
+    }
   };
 
-  const filteredMenu = menu.filter(item => selectedCategory === 'Tout' || getItemCategory(item) === selectedCategory);
+  const filteredMenu = menu.filter(item => 
+    selectedCategory === 'Tout' || getItemCategory(item) === selectedCategory
+  );
 
   // Carrousel auto-scroll
   useEffect(() => {
@@ -236,26 +281,33 @@ const finalTable = storedTable;
     return () => clearInterval(interval);
   }, [filteredMenu, selectedCategory]);
 
-  // --- Modals ---
+  // Modals
   const RenderNotificationModal = () => (
     <Modal visible={showNotif} transparent animationType="slide" onRequestClose={() => setShowNotif(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalBox}>
-          <Text style={styles.modalTitle}><Ionicons name="notifications" size={24} color={PRIMARY_COLOR} /> Notifications</Text>
+          <Text style={styles.modalTitle}>
+            <Ionicons name="notifications" size={24} color={PRIMARY_COLOR} /> Notifications
+          </Text>
           <ScrollView style={styles.modalScrollView}>
             {notifications.length === 0 ? (
               <Text style={{ textAlign: 'center', color: 'gray', padding: 10 }}>Aucune notification</Text>
             ) : (
-              notifications.map((n) => (
+              notifications.slice().reverse().map((n) => (
                 <View key={n.id} style={styles.notifItem}>
                   <Text style={{ fontWeight: '600', color: '#333' }}>{n.message}</Text>
                   <Text style={{ fontSize: 12, color: 'gray' }}>{n.date}</Text>
                 </View>
-              )).reverse()
+              ))
             )}
           </ScrollView>
-          <TouchableOpacity style={[styles.modalActionBtn, { backgroundColor: PRIMARY_COLOR }]} onPress={() => setNotifications([])}>
-            <Text style={styles.modalActionText}><Ionicons name="trash-bin" size={16} color="white" /> Vider les notifications</Text>
+          <TouchableOpacity 
+            style={[styles.modalActionBtn, { backgroundColor: PRIMARY_COLOR }]} 
+            onPress={() => setNotifications([])}
+          >
+            <Text style={styles.modalActionText}>
+              <Ionicons name="trash-bin" size={16} color="white" /> Vider les notifications
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowNotif(false)}>
             <Text style={styles.modalCloseText}>Fermer</Text>
@@ -269,7 +321,9 @@ const finalTable = storedTable;
     <Modal visible={showCart} transparent animationType="slide" onRequestClose={() => setShowCart(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalBox}>
-          <Text style={styles.modalTitle}><Ionicons name="cart" size={24} color={PRIMARY_COLOR} /> Votre Panier</Text>
+          <Text style={styles.modalTitle}>
+            <Ionicons name="cart" size={24} color={PRIMARY_COLOR} /> Votre Panier
+          </Text>
           <ScrollView style={styles.modalScrollView}>
             {cart.length === 0 ? (
               <Text style={{ textAlign: 'center', color: 'gray', padding: 10 }}>Panier vide</Text>
@@ -286,19 +340,20 @@ const finalTable = storedTable;
                       <Ionicons name="add-circle-outline" size={24} color={PRIMARY_COLOR} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.cartPrice}>{ (getItemPrice(c.item) * c.qty).toFixed(2) } Ar</Text>
+                  <Text style={styles.cartPrice}>{(getItemPrice(c.item) * c.qty).toFixed(2)} Ar</Text>
                 </View>
               ))
             )}
           </ScrollView>
 
-          <Text style={styles.totalText}>Total à payer :  {totalPrice.toFixed(2)} Ar </Text>
+          <Text style={styles.totalText}>Total à payer : {totalPrice.toFixed(2)} Ar</Text>
 
           <TouchableOpacity
             style={[styles.payBtn, processingPayment || cart.length === 0 ? styles.payBtnDisabled : null]}
             disabled={cart.length === 0 || processingPayment}
             onPress={() => Alert.alert(
-              "Choisir le paiement", "Sélectionnez une méthode de paiement pour finaliser la commande.",
+              "Choisir le paiement", 
+              "Sélectionnez une méthode de paiement pour finaliser la commande.",
               [
                 { text: "Mobile Money", onPress: () => handlePayment("Mobile Money") },
                 { text: "Carte bancaire", onPress: () => handlePayment("Carte bancaire") },
@@ -314,10 +369,12 @@ const finalTable = storedTable;
           {receipt && (
             <View style={styles.receiptBox}>
               <Text style={styles.receiptTitle}>🧾 Dernier Reçu (ID: {receipt.id})</Text>
-              <Text>Montant:  {receipt.amount.toFixed(2)} Ar  </Text>
-              <Text> Méthode:  {receipt.method}  </Text>
+              <Text>Montant: {receipt.amount.toFixed(2)} Ar</Text>
+              <Text>Méthode: {receipt.method}</Text>
               <TouchableOpacity style={styles.shareButton} onPress={shareReceipt}>
-                <Text style={styles.shareButtonText}><Ionicons name="share" size={16} color="white" /> Partager le reçu</Text>
+                <Text style={styles.shareButtonText}>
+                  <Ionicons name="share" size={16} color="white" /> Partager le reçu
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -330,19 +387,23 @@ const finalTable = storedTable;
     </Modal>
   );
 
-  // --- Rendu principal ---
+  // Rendu principal
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={PRIMARY_COLOR} />
       
       {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.headerText} numberOfLines={1}> Menu du jour</Text>
+        <Text style={styles.headerText} numberOfLines={1}>Menu du jour</Text>
         <View style={styles.topRight}>
           {/* Notifications */}
           <TouchableOpacity style={styles.topIcon} onPress={() => setShowNotif(true)}>
             <FontAwesome name="bell" size={22} color={CARD_COLOR} />
-            {notifications.length > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{Math.min(notifications.length, 9)}</Text></View>}
+            {notifications.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{Math.min(notifications.length, 9)}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           {/* Historique */}
           <TouchableOpacity style={styles.topIcon} onPress={() => navigation.navigate('Historique')}>
@@ -351,12 +412,16 @@ const finalTable = storedTable;
           {/* Panier */}
           <TouchableOpacity style={styles.topIcon} onPress={() => setShowCart(true)}>
             <FontAwesome name="shopping-cart" size={22} color={CARD_COLOR} />
-            {cart.length > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{cart.length}</Text></View>}
+            {cart.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{cart.length}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
       
-      {/* Contenu principal (Scrollable pour les catégories et le carrousel) */}
+      {/* Contenu principal */}
       <View style={{ flex: 1 }}>
         {/* CATEGORIES */}
         <View style={styles.categoryContainer}>
@@ -372,7 +437,7 @@ const finalTable = storedTable;
                 }}
               >
                 <Text style={[styles.categoryText, selectedCategory === cat && styles.categoryTextSelected]}>
-                  {cat} 
+                  {cat}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -402,12 +467,14 @@ const finalTable = storedTable;
                   {e.image ? (
                     <Image source={{ uri: e.image }} style={styles.imageList} />
                   ) : (
-                    <View style={styles.imageFallbackList}><Text style={{ color: CARD_COLOR, fontWeight: 'bold' }}>[Image manquante]</Text></View>
+                    <View style={styles.imageFallbackList}>
+                      <Text style={{ color: CARD_COLOR, fontWeight: 'bold' }}>[Image manquante]</Text>
+                    </View>
                   )}
                   <View style={styles.textBox}>
                     <Text style={styles.nameList} numberOfLines={1}>{getItemName(e)}</Text>
                     <Text style={styles.descList} numberOfLines={2}>{e.description}</Text>
-                    {finalTable && <Text style={styles.tableNumber}>Table:  {finalTable} </Text>}
+                    {storedTable && <Text style={styles.tableNumber}>Table: {storedTable}</Text>}
                     <Text style={styles.priceList}>{getItemPrice(e).toFixed(2)} Ar</Text>
                   </View>
                   <TouchableOpacity style={styles.orderBtnList} onPress={() => addToCart(e)}>
@@ -447,11 +514,10 @@ const finalTable = storedTable;
   );
 }
 
-// --- STYLES ---
+// STYLES
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BACKGROUND_COLOR },
 
-  // --- Header ---
   header: { 
     width: '100%', 
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 45, 
@@ -470,14 +536,12 @@ const styles = StyleSheet.create({
   badge: { position: 'absolute', right: -3, top: -3, backgroundColor: 'red', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   badgeText: { color: CARD_COLOR, fontSize: 11, fontWeight: 'bold' },
 
-  // --- Catégories ---
   categoryContainer: { height: 55, paddingVertical: 8, backgroundColor: CARD_COLOR, borderBottomWidth: 1, borderColor: '#eee' },
   categoryButton: { paddingHorizontal: 18, paddingVertical: 8, marginHorizontal: 5, borderRadius: 25, backgroundColor: '#e0e0e0' },
   categorySelected: { backgroundColor: PRIMARY_COLOR, borderWidth: 1, borderColor: PRIMARY_COLOR },
   categoryText: { color: '#333', fontWeight: '600' },
   categoryTextSelected: { color: CARD_COLOR, fontWeight: 'bold' },
 
-  // --- Carrousel et Cartes ---
   carousel: { paddingVertical: 15 },
   carouselContent: { alignItems: 'center', paddingHorizontal: 30 },
   emptyListMessage: { width: screenWidth, alignItems: 'center', justifyContent: 'center', height: 300 },
@@ -507,7 +571,6 @@ const styles = StyleSheet.create({
   orderBtnList: { height: 48, backgroundColor: PRIMARY_COLOR, flexDirection: 'row', justifyContent: 'center', width: '85%', alignItems: 'center', borderRadius: 12, marginTop: 10 },
   orderTextList: { color: CARD_COLOR, fontSize: 18, fontWeight: 'bold', marginLeft: 10 },
 
-  // --- Bottom Bar FIXE ---
   bottomBar: { 
     height: 65, 
     flexDirection: 'row', 
@@ -515,7 +578,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around', 
     alignItems: 'center', 
     borderTopWidth: 0, 
-    paddingBottom: Platform.OS === 'ios' ? 10 : 0, // Padding pour iPhone avec encoche
+    paddingBottom: Platform.OS === 'ios' ? 10 : 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -5 },
     shadowOpacity: 0.1,
@@ -525,7 +588,6 @@ const styles = StyleSheet.create({
   bottomBtn: { justifyContent: 'center', alignItems: 'center', padding: 5 },
   bottomText: { fontSize: 12, color: PRIMARY_COLOR, marginTop: 3, fontWeight: '600' },
 
-  // --- Modals ---
   modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalBox: { width: '100%', backgroundColor: CARD_COLOR, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
   modalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 15, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 10, color: PRIMARY_COLOR },

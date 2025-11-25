@@ -1,84 +1,147 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, Image, Alert, Modal, ScrollView, ActivityIndicator,
-  Platform, StatusBar
+  Platform, StatusBar, Animated, Dimensions
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import io from 'socket.io-client';
 
-// Constantes de style
+// Constantes de design cohérentes
 const PRIMARY_COLOR = '#008080';
-const ACCENT_COLOR = '#008080';
-const BACKGROUND_COLOR = '#F4F7F9';
-const CARD_BACKGROUND = '#FFFFFF';
+const SECONDARY_COLOR = '#004D40';
+const ACCENT_COLOR = '#D32F2F';
+const BACKGROUND_LIGHT = '#F0F5F5';
+const CARD_BG = '#FFFFFF';
+const SUCCESS_COLOR = '#2E8B57';
+const BORDER_COLOR = '#E0E0E0';
 
-const BACKEND_URL = 'http://192.168.137.118:8000'; // À adapter
+const { width } = Dimensions.get('window');
+const BACKEND_URL = 'http://192.168.1.133:3000';
 
 export default function MenuList({ navigation }) {
   const [menuList, setMenuList] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
-  const [menuItem, setMenuItem] = useState({
-    id: null, name: '', description: '', price: '', image: null
-  });
+  const [menuItem, setMenuItem] = useState({ id: null, name: '', description: '', price: '', image: null, category: '' });
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
+  const [successfulCommandCount, setSuccessfulCommandCount] = useState(0);
+  const [newCommandAlert, setNewCommandAlert] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const socketRef = useRef(null);
+
+  // --- Fetch menu ---
   const fetchMenu = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${BACKEND_URL}/menu`);
-      const formattedMenu = response.data.menu.map(item => ({
+      const response = await axios.get(`${BACKEND_URL}/menus`);
+      let menuData = [];
+      if (Array.isArray(response.data)) menuData = response.data;
+      else if (response.data.menu) menuData = response.data.menu;
+      else if (response.data.menus) menuData = response.data.menus;
+
+      const formattedMenu = menuData.map(item => ({
         ...item,
-        price: String(item.price)
+        id: item.id || item._id,
+        price: String(item.price || 0),
+        name: item.name || item.nom || 'Sans nom',
+        description: item.description || '',
+        category: item.category || item.categorie || 'Autres',
+        image: item.image || null
       }));
-      setMenuList(formattedMenu || []);
-    } catch {
+
+      setMenuList(formattedMenu);
+    } catch (error) {
+      console.error('Erreur fetch menu:', error);
       Alert.alert('Erreur', 'Impossible de récupérer les plats');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchMenu(); }, []);
-
-  const updateField = (field, value) => {
-    setMenuItem({ ...menuItem, [field]: value });
+  // --- Fetch initial count commandes ---
+  const fetchSuccessfulCommandCount = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/commande/stats/recent-count`);
+      setSuccessfulCommandCount(response.data.successful || 0);
+    } catch (error) {
+      console.error('Erreur fetch commandes réussies:', error);
+      setSuccessfulCommandCount(0);
+    }
   };
+
+  useEffect(() => {
+    fetchMenu();
+    fetchSuccessfulCommandCount();
+
+    // --- Socket.io ---
+    socketRef.current = io(BACKEND_URL);
+    socketRef.current.on('connect', () => console.log('Socket connecté'));
+
+    socketRef.current.on('commande:new', (commande) => {
+      console.log('Nouvelle commande reçue:', commande);
+      setSuccessfulCommandCount(prev => prev + 1);
+      setNewCommandAlert(true);
+
+      Animated.sequence([
+        Animated.timing(scaleAnim, { toValue: 1.3, duration: 200, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true })
+      ]).start();
+
+      setTimeout(() => setNewCommandAlert(false), 3000);
+    });
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
+
+  // --- Helper ---
+  const updateField = (field, value) => setMenuItem({ ...menuItem, [field]: value });
 
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 1
+        aspect: [4, 3],
+        quality: 0.8
       });
       if (!result.canceled) updateField('image', result.assets[0].uri);
-    } catch {
-      Alert.alert("Erreur", "Impossible de sélectionner l'image");
+    } catch (error) {
+      console.error('Erreur image:', error);
+      Alert.alert('Erreur', 'Impossible de sélectionner l\'image');
     }
   };
 
   const saveMenu = async () => {
-    if (!menuItem.name || !menuItem.price || isNaN(parseFloat(menuItem.price)))
-      return Alert.alert("Erreur", "Veuillez remplir le nom et le prix valide du plat.");
+    if (!menuItem.name.trim()) return Alert.alert("Erreur", "Le nom du plat est obligatoire");
+    const priceValue = parseFloat(menuItem.price);
+    if (isNaN(priceValue) || priceValue <= 0) return Alert.alert("Erreur", "Veuillez entrer un prix valide");
 
     try {
       setLoading(true);
-      const dataToSend = { ...menuItem, price: parseFloat(menuItem.price) };
-      if (isEditing)
-        await axios.put(`${BACKEND_URL}/menu/${menuItem.id}`, dataToSend);
-      else
-        await axios.post(`${BACKEND_URL}/menu`, dataToSend);
+      const dataToSend = {
+        name: menuItem.name.trim(),
+        description: menuItem.description.trim(),
+        price: priceValue,
+        category: menuItem.category || 'Autres',
+        image: menuItem.image
+      };
+      if (isEditing) await axios.put(`${BACKEND_URL}/menus/${menuItem.id}`, dataToSend);
+      else await axios.post(`${BACKEND_URL}/menus`, dataToSend);
 
+      Alert.alert('Succès', isEditing ? 'Plat modifié avec succès' : 'Plat ajouté avec succès');
       setModalVisible(false);
-      setMenuItem({ id: null, name: '', description: '', price: '', image: null });
+      setMenuItem({ id: null, name: '', description: '', price: '', image: null, category: '' });
       setIsEditing(false);
       fetchMenu();
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Erreur', 'Impossible de contacter le serveur ou erreur lors de l\'enregistrement');
+    } catch (error) {
+      console.error('Erreur save:', error);
+      Alert.alert('Erreur', error.response?.data?.message || 'Impossible de contacter le serveur');
     } finally {
       setLoading(false);
     }
@@ -87,63 +150,94 @@ export default function MenuList({ navigation }) {
   const deleteMenu = (id) => {
     Alert.alert('Confirmation', 'Voulez-vous vraiment supprimer ce plat ?', [
       { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer', style: 'destructive', onPress: async () => {
-          try {
-            await axios.delete(`${BACKEND_URL}/menu/${id}`);
-            fetchMenu();
-          } catch {
-            Alert.alert('Erreur', 'Impossible de supprimer le plat');
-          }
+      { text: 'Supprimer', style: 'destructive', onPress: async () => {
+        try { 
+          setLoading(true); 
+          await axios.delete(`${BACKEND_URL}/menus/${id}`); 
+          Alert.alert('Succès', 'Plat supprimé');
+          fetchMenu(); 
+        } catch { 
+          Alert.alert('Erreur', 'Impossible de supprimer le plat'); 
+        } finally { 
+          setLoading(false); 
         }
-      }
+      }}
     ]);
   };
 
   const editMenu = (item) => {
-    setMenuItem({ ...item, price: String(item.price) }); 
+    setMenuItem({
+      id: item.id,
+      name: item.name || '',
+      description: item.description || '',
+      price: String(item.price || 0),
+      image: item.image || null,
+      category: item.category || 'Autres'
+    });
     setIsEditing(true);
     setModalVisible(true);
   };
 
   const handleLogout = () => {
     Alert.alert("Déconnexion", "Voulez-vous vraiment vous déconnecter ?", [
-      { text: "Annuler" },
-      {
-        text: "Déconnecter",
-        style: "destructive",
-        onPress: () => navigation.replace("admin")
-      }
+      { text: "Annuler", style: 'cancel' },
+      { text: "Déconnecter", style: "destructive", onPress: () => navigation.replace("admin") }
     ]);
+  };
+
+  const openAddModal = () => {
+    setIsEditing(false);
+    setMenuItem({ id: null, name: '', description: '', price: '', image: null, category: '' });
+    setModalVisible(true);
   };
 
   const renderItem = ({ item }) => (
     <View style={styles.menuCard}>
-      {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.menuImage} />
-      ) : (
-        <View style={[styles.menuImage, styles.placeholderImage]}>
-          <Ionicons name="image-outline" size={30} color="#ccc" />
+      <View style={styles.cardContent}>
+        <View style={styles.cardLeft}>
+          {item.image ? (
+            <Image source={{ uri: item.image }} style={styles.menuImage} />
+          ) : (
+            <View style={[styles.menuImage, styles.placeholderImage]}>
+              <MaterialCommunityIcons name="food-variant" size={45} color="#ccc" />
+            </View>
+          )}
+          
+          <View style={styles.menuInfo}>
+            <Text style={styles.menuName} numberOfLines={2}>{item.name}</Text>
+            {item.category && item.category !== 'Autres' && (
+              <View style={styles.categoryBadge}>
+                <MaterialIcons name="category" size={14} color={PRIMARY_COLOR} />
+                <Text style={styles.categoryText}>{item.category}</Text>
+              </View>
+            )}
+            {item.description ? (
+              <Text style={styles.menuDesc} numberOfLines={2}>{item.description}</Text>
+            ) : (
+              <Text style={styles.noDesc}>Aucune description</Text>
+            )}
+            <Text style={styles.menuPrice}>{parseFloat(item.price).toFixed(2)} Ar</Text>
+          </View>
         </View>
-      )}
 
-      <View style={styles.menuInfo}>
-        <Text style={styles.menuName} numberOfLines={1}>{item.name}</Text>
-        {item.description ? (
-          <Text style={styles.menuDesc} numberOfLines={2}>{item.description}</Text>
-        ) : (
-          <Text style={styles.noDesc}>Pas de description</Text>
-        )}
-        <Text style={styles.menuPrice}>{parseFloat(item.price).toFixed(2)} Ar</Text>
-      </View>
-
-      <View style={styles.iconRow}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => editMenu(item)}>
-          <Ionicons name="create-outline" size={24} color={ACCENT_COLOR} />
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.iconButton, { marginLeft: 15 }]} onPress={() => deleteMenu(item.id)}>
-          <Ionicons name="trash-outline" size={24} color="#D32F2F" />
-        </TouchableOpacity>
+        {/* Boutons à droite */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, styles.editBtn]} 
+            onPress={() => editMenu(item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={15} color={CARD_BG} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.actionBtn, styles.deleteBtn]} 
+            onPress={() => deleteMenu(item.id)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="trash-outline" size={15} color={CARD_BG} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -152,224 +246,627 @@ export default function MenuList({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={PRIMARY_COLOR} />
       
-      {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.orderBtn} onPress={() => navigation.navigate("listecommande")}>
-          <Ionicons name="receipt-outline" size={26} color={CARD_BACKGROUND} />
-        </TouchableOpacity>
-        <Text style={styles.topBarText}>Gestion des Plats</Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={28} color={CARD_BACKGROUND} />
-        </TouchableOpacity>
-      </View>
-
-      {loading ? (
-        <ActivityIndicator size="large" color={PRIMARY_COLOR} style={{ marginTop: 50 }} />
-      ) : (
-        <FlatList
-          data={menuList}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={styles.flatListContent}
-          refreshing={loading}
-          onRefresh={fetchMenu}
-          ListEmptyComponent={
-            <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 30 }}>
-              <Ionicons name="sad-outline" size={20} color="#555" style={{ marginRight: 5 }} />
-              <Text style={styles.emptyListText}>
-                Aucun plat trouvé. Tirez pour rafraîchir.
-              </Text>
-            </View>
-          }
-        />
-      )}
-
-      {/* Bouton Ajouter */}
-      <TouchableOpacity
-        style={styles.addBtn}
-        onPress={() => {
-          setIsEditing(false);
-          setMenuItem({ id: null, name: '', description: '', price: '', image: null });
-          setModalVisible(true);
-        }}
-      >
-        <Ionicons name="add-outline" size={30} color={CARD_BACKGROUND} />
-      </TouchableOpacity>
-
-      {/* Modal */}
-      <Modal 
-        visible={modalVisible} 
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <ScrollView contentContainerStyle={styles.modalContainer}>
-          <Text style={styles.title}>
-            {isEditing ? '🍽️ Modifier le plat' : '✨ Ajouter un nouveau plat'}
-          </Text>
-
-          {/* Nom */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="fast-food" size={22} color={PRIMARY_COLOR} style={styles.icon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Nom du plat *"
-              placeholderTextColor="#888"
-              value={menuItem.name}
-              onChangeText={(text) => updateField('name', text)}
-            />
-          </View>
-
-          {/* Description */}
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="description" size={22} color={PRIMARY_COLOR} style={styles.icon} />
-            <TextInput
-              style={[styles.input, styles.multiLineInput]}
-              placeholder="Description"
-              placeholderTextColor="#888"
-              value={menuItem.description}
-              onChangeText={(text) => updateField('description', text)}
-              multiline
-            />
-          </View>
-
-          {/* Prix */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="pricetag" size={22} color={PRIMARY_COLOR} style={styles.icon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Prix ($) *"
-              placeholderTextColor="#888"
-              keyboardType="numeric"
-              value={menuItem.price}
-              onChangeText={(text) => updateField('price', text.replace(/[^0-9.]/g, ''))}
-            />
-          </View>
-
-          {/* Image */}
-          <TouchableOpacity style={styles.imageBtn} onPress={pickImage}>
-            <Ionicons name="camera-outline" size={20} color="white" style={{ marginRight: 5 }} />
-            <Text style={styles.imageText}>
-              {menuItem.image ? "Modifier l'image" : "Ajouter une image"}
-            </Text>
-          </TouchableOpacity>
-
-          {menuItem.image && (
-            <Image source={{ uri: menuItem.image }} style={styles.imagePreview} />
-          )}
-
-          {/* Enregistrer */}
-          <TouchableOpacity style={styles.saveBtn} onPress={saveMenu} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.saveText}>
-                {isEditing ? 'Enregistrer les modifications' : 'Ajouter le plat'}
-              </Text>
+      {/* HEADER MODERNE */}
+      <View style={styles.header}>
+        <View style={styles.headerDecoration1} />
+        <View style={styles.headerDecoration2} />
+        
+        <View style={styles.headerContent}>
+          <TouchableOpacity 
+            style={styles.headerIconBtn} 
+            onPress={() => navigation.navigate("listecommande")}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="receipt-outline" size={24} color={CARD_BG} />
+            {successfulCommandCount > 0 && (
+              <Animated.View style={[
+                styles.badge, 
+                newCommandAlert && { 
+                  backgroundColor: '#FF3D00', 
+                  transform: [{ scale: scaleAnim }] 
+                }
+              ]}>
+                <Text style={styles.badgeText}>{successfulCommandCount}</Text>
+              </Animated.View>
             )}
           </TouchableOpacity>
 
-          {/* Annuler */}
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)} disabled={loading}>
-            <Text style={styles.cancelText}>Annuler</Text>
-          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <MaterialCommunityIcons name="food-fork-drink" size={28} color={CARD_BG} />
+            <Text style={styles.headerTitle}>Gestion Menu</Text>
+          </View>
 
-        </ScrollView>
+          <TouchableOpacity 
+            style={styles.headerIconBtn} 
+            onPress={handleLogout}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="log-out-outline" size={24} color={CARD_BG} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* CONTENU */}
+      {loading && menuList.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+          <Text style={styles.loadingText}>Chargement des plats...</Text>
+        </View>
+      ) : menuList.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <MaterialCommunityIcons name="food-off" size={80} color="#ccc" />
+          <Text style={styles.emptyText}>Aucun plat disponible</Text>
+          <Text style={styles.emptySubtext}>Ajoutez votre premier plat au menu</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={menuList}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          contentContainerStyle={styles.flatListContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      {/* BOUTON FLOTTANT AJOUTER */}
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={openAddModal}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="add" size={32} color={CARD_BG} />
+      </TouchableOpacity>
+
+      {/* MODAL AJOUTER/MODIFIER */}
+      <Modal 
+        visible={modalVisible} 
+        animationType="slide" 
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          
+          {/* Header Modal */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              onPress={() => setModalVisible(false)}
+              style={styles.modalCloseBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={32} color={PRIMARY_COLOR} />
+            </TouchableOpacity>
+            
+            <View style={styles.modalTitleContainer}>
+              <MaterialCommunityIcons 
+                name={isEditing ? "pencil" : "plus-circle"} 
+                size={28} 
+                color={PRIMARY_COLOR} 
+              />
+              <Text style={styles.modalTitle}>
+                {isEditing ? 'Modifier le plat' : 'Nouveau plat'}
+              </Text>
+            </View>
+            
+            <View style={{ width: 32 }} />
+          </View>
+
+          <ScrollView 
+            contentContainerStyle={styles.modalContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Nom */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Nom du plat *</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="restaurant" size={20} color={PRIMARY_COLOR} style={styles.inputIcon} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Ex: Pizza Margherita" 
+                  placeholderTextColor="#999" 
+                  value={menuItem.name} 
+                  onChangeText={text => updateField('name', text)} 
+                  editable={!loading} 
+                />
+              </View>
+            </View>
+
+            {/* Catégorie */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Catégorie</Text>
+              <View style={styles.inputContainer}>
+                <MaterialIcons name="category" size={20} color={PRIMARY_COLOR} style={styles.inputIcon} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Ex: Entrées, Plats, Desserts" 
+                  placeholderTextColor="#999" 
+                  value={menuItem.category} 
+                  onChangeText={text => updateField('category', text)} 
+                  editable={!loading} 
+                />
+              </View>
+            </View>
+
+            {/* Prix */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Prix (Ar) *</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="cash-outline" size={20} color={PRIMARY_COLOR} style={styles.inputIcon} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Ex: 15000" 
+                  placeholderTextColor="#999" 
+                  keyboardType="decimal-pad" 
+                  value={menuItem.price} 
+                  onChangeText={text => updateField('price', text.replace(/[^0-9.]/g, ''))} 
+                  editable={!loading} 
+                />
+              </View>
+            </View>
+
+            {/* Description */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Description</Text>
+              <View style={[styles.inputContainer, styles.textAreaContainer]}>
+                <MaterialIcons name="description" size={20} color={PRIMARY_COLOR} style={[styles.inputIcon, { alignSelf: 'flex-start', marginTop: 12 }]} />
+                <TextInput 
+                  style={[styles.input, styles.textArea]} 
+                  placeholder="Décrivez le plat..." 
+                  placeholderTextColor="#999" 
+                  value={menuItem.description} 
+                  onChangeText={text => updateField('description', text)} 
+                  multiline 
+                  numberOfLines={4} 
+                  editable={!loading} 
+                />
+              </View>
+            </View>
+
+            {/* Image */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Image du plat</Text>
+              <TouchableOpacity 
+                style={styles.imagePickerBtn} 
+                onPress={pickImage} 
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="camera" size={22} color={CARD_BG} />
+                <Text style={styles.imagePickerText}>
+                  {menuItem.image ? "Modifier l'image" : "Ajouter une image"}
+                </Text>
+              </TouchableOpacity>
+              
+              {menuItem.image && (
+                <View style={styles.imagePreviewContainer}>
+                  <Image source={{ uri: menuItem.image }} style={styles.imagePreview} />
+                  <TouchableOpacity 
+                    style={styles.removeImageBtn}
+                    onPress={() => updateField('image', null)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close-circle" size={28} color={ACCENT_COLOR} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Boutons d'action */}
+            <TouchableOpacity 
+              style={[styles.submitBtn, loading && styles.disabledBtn]} 
+              onPress={saveMenu} 
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator color={CARD_BG} size="small" />
+              ) : (
+                <>
+                  <Ionicons 
+                    name={isEditing ? "checkmark-circle" : "add-circle"} 
+                    size={22} 
+                    color={CARD_BG} 
+                  />
+                  <Text style={styles.submitText}>
+                    {isEditing ? 'Enregistrer les modifications' : 'Ajouter au menu'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.cancelBtn} 
+              onPress={() => setModalVisible(false)} 
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+
+          </ScrollView>
+        </View>
       </Modal>
     </View>
   );
 }
 
-// --- Styles ---
+// --- STYLES ---
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BACKGROUND_COLOR },
+  container: { 
+    flex: 1, 
+    backgroundColor: BACKGROUND_LIGHT 
+  },
 
-  topBar: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 40,
-    height: Platform.OS === 'android' ? 90 + StatusBar.currentHeight : 100,
+  // --- HEADER ---
+  header: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 15 : 50,
+    paddingBottom: 20,
     backgroundColor: PRIMARY_COLOR,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 15,
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
-    elevation: 5,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    overflow: 'hidden',
+  },
+  headerDecoration1: {
+    position: 'absolute',
+    top: -40,
+    right: -40,
+    width: 150,
+    height: 150,
+  },
+  headerDecoration2: {
+    position: 'absolute',
+    bottom: -20,
+    left: -20,
+    width: 100,
+    height: 100
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  headerIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: PRIMARY_COLOR,
+  },
+  badgeText: {
+    color: CARD_BG,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerTitle: {
+    color: CARD_BG,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 
-  topBarText: {
-    color: CARD_BACKGROUND,
-    fontSize: 22,
-    fontWeight: "bold",
-  },
-
-  orderBtn: { position: "absolute", left: 15, bottom: 10, padding: 8 },
-  logoutBtn: { position: "absolute", right: 15, bottom: 10, padding: 8 },
-
-  flatListContent: { paddingVertical: 10, paddingBottom: 100 },
-
-  menuCard: {
-    flexDirection: "row",
-    backgroundColor: CARD_BACKGROUND,
-    borderRadius: 15,
+  // --- LISTE ---
+  flatListContent: {
     padding: 15,
-    marginVertical: 7,
-    marginHorizontal: 15,
-    shadowColor: "#000",
+    paddingBottom: 100,
+  },
+  menuCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 15,
+    elevation: 4,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-    alignItems: "center",
+    shadowRadius: 6,
+  },
+  cardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+  },
+  cardLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    marginRight: 12,
+  },
+  menuImage: {
+    width: 90,
+    height: 90,
+    borderRadius: 15,
+    marginRight: 15,
+  },
+  placeholderImage: {
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: BORDER_COLOR,
+    borderStyle: 'dashed',
+  },
+  menuInfo: {
+    flex: 1,
+    justifyContent: 'flex-start',
+  },
+  menuName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: SECONDARY_COLOR,
+    marginBottom: 6,
+  },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: `${PRIMARY_COLOR}15`,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    marginBottom: 6,
+  },
+  categoryText: {
+    fontSize: 11,
+    color: PRIMARY_COLOR,
+    fontWeight: '700',
+  },
+  menuDesc: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  noDesc: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    marginBottom: 6,
+  },
+  menuPrice: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: SUCCESS_COLOR,
+    marginTop: 4,
+  },
+  actionButtons: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  actionBtn: {
+    width: 35,
+    height: 35,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+  },
+  editBtn: {
+    backgroundColor: PRIMARY_COLOR,
+  },
+  deleteBtn: {
+    backgroundColor: ACCENT_COLOR,
   },
 
-  menuImage: { width: 80, height: 80, borderRadius: 10, marginRight: 15 },
-  placeholderImage: { backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center' },
-
-  menuInfo: { flex: 1, marginRight: 10 },
-  menuName: { fontSize: 18, fontWeight: "800", color: PRIMARY_COLOR, marginBottom: 2 },
-  menuDesc: { color: "#666", fontSize: 14 },
-  noDesc: { color: "#999", fontSize: 12, fontStyle: 'italic' },
-  menuPrice: { marginTop: 5, color: "#2E8B57", fontWeight: "bold", fontSize: 16 },
-
-  iconRow: { flexDirection: "row", alignItems: 'center', justifyContent: 'flex-end' },
-  iconButton: { padding: 5 },
-
-  emptyListText: { color: '#555', fontSize: 16 },
-
-  addBtn: {
-    position: 'absolute', bottom: 25, right: 25,
-    backgroundColor: PRIMARY_COLOR, width: 60, height: 60,
-    borderRadius: 30, justifyContent: 'center', alignItems: 'center',
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 4.65, elevation: 8,
+  // --- EMPTY STATE ---
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 15,
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#666',
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
   },
 
-  modalContainer: { padding: 20, backgroundColor: BACKGROUND_COLOR, paddingTop: 40, flexGrow: 1 },
-  title: { fontSize: 24, fontWeight: "bold", color: PRIMARY_COLOR, marginBottom: 30, textAlign: "center" },
+  // --- FAB ---
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
+    backgroundColor: PRIMARY_COLOR,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
 
+  // --- MODAL ---
+  modalContainer: {
+    flex: 1,
+    backgroundColor: BACKGROUND_LIGHT,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 15 : 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    backgroundColor: CARD_BG,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_COLOR,
+    elevation: 3,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: SECONDARY_COLOR,
+  },
+  modalContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+
+  // --- FORMULAIRE ---
+  formGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: SECONDARY_COLOR,
+    marginBottom: 8,
+  },
   inputContainer: {
-    flexDirection: "row", alignItems: "center",
-    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 10,
-    marginBottom: 15, paddingHorizontal: 10, backgroundColor: CARD_BACKGROUND,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1, shadowRadius: 1, elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CARD_BG,
+    borderWidth: 2,
+    borderColor: BORDER_COLOR,
+    borderRadius: 15,
+    paddingHorizontal: 15,
+    paddingVertical: 4,
   },
-  icon: { marginRight: 10 },
-  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: "#333" },
-  multiLineInput: { height: 100, textAlignVertical: 'top', paddingVertical: 12 },
-
-  imageBtn: {
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
-    backgroundColor: PRIMARY_COLOR, padding: 15, borderRadius: 10,
-    marginBottom: 15, shadowColor: PRIMARY_COLOR, shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3, shadowRadius: 4, elevation: 5,
+  textAreaContainer: {
+    alignItems: 'flex-start',
   },
-  imageText: { color: CARD_BACKGROUND, fontWeight: "bold", fontSize: 16 },
-  imagePreview: { width: "100%", height: 200, borderRadius: 15, marginBottom: 20, borderWidth: 2, borderColor: PRIMARY_COLOR },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: '#333',
+    paddingVertical: 12,
+  },
+  textArea: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+  },
 
-  saveBtn: { backgroundColor: PRIMARY_COLOR, padding: 18, borderRadius: 10, alignItems: "center", marginTop: 15, shadowColor: PRIMARY_COLOR, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 5, elevation: 6 },
-  saveText: { color: CARD_BACKGROUND, fontWeight: "bold", fontSize: 18 },
+  // --- IMAGE ---
+  imagePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIMARY_COLOR,
+    paddingVertical: 14,
+    borderRadius: 15,
+    gap: 10,
+  },
+  imagePickerText: {
+    color: CARD_BG,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  imagePreviewContainer: {
+    marginTop: 15,
+    borderRadius: 15,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 220,
+    borderRadius: 15,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: CARD_BG,
+    borderRadius: 14,
+  },
 
-  cancelBtn: { backgroundColor: '#A9A9A9', padding: 15, borderRadius: 10, alignItems: "center", marginTop: 10, borderWidth: 1, borderColor: '#999' },
-  cancelText: { color: 'white', fontWeight: "bold", fontSize: 16 },
+  // --- BOUTONS ---
+  submitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIMARY_COLOR,
+    paddingVertical: 16,
+    borderRadius: 15,
+    marginTop: 10,
+    gap: 10,
+    elevation: 5,
+    shadowColor: PRIMARY_COLOR,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  submitText: {
+    color: CARD_BG,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  disabledBtn: {
+    opacity: 0.6,
+  },
+  cancelBtn: {
+    paddingVertical: 16,
+    borderRadius: 15,
+    backgroundColor: CARD_BG,
+    borderWidth: 2,
+    borderColor: BORDER_COLOR,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  cancelText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
