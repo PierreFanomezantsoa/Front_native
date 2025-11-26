@@ -2,7 +2,6 @@ import { StyleSheet } from 'react-native';
 import Acceuil from './Composant/Acceuil';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import AffectationMin from './Composant/Menu/AffectationMin';
 import AjoutDonne from './Composant/Menu/AjoutMenu';
 import Publications from './Composant/Menu/Publication';
 import MenuCards from './Composant/Menu/Menu';
@@ -18,7 +17,6 @@ export default function App() {
         screenOptions={{
           headerShown: false}}>
         <Stack.Screen name="accueil" component={Acceuil} />
-        <Stack.Screen name="affectMin" component={AffectationMin} />
         <Stack.Screen name="ajoutMenu" component={AjoutDonne} />
         <Stack.Screen name="Publications" component={Publications} />
         <Stack.Screen name="menuList" component={MenuCards} />
