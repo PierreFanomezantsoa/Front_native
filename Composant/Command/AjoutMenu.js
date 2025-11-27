@@ -266,6 +266,14 @@ export default function MenuList({ navigation }) {
               </Animated.View>
             )}
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerIconBtn} 
+            onPress={() => {
+              navigation.navigate("adminPublication");
+            }}
+          >
+            <Ionicons name="bullhorn" size={24} color={CARD_BG} />
+          </TouchableOpacity>
           
           <View style={styles.headerTitleContainer}>
             <MaterialCommunityIcons name="food-fork-drink" size={28} color={CARD_BG} />

@@ -322,7 +322,7 @@ export default function KiosqueMenu({ route, navigation }) {
       <View style={styles.modalContainer}>
         <View style={styles.modalBox}>
           <Text style={styles.modalTitle}>
-            <Ionicons name="cart" size={24} color={PRIMARY_COLOR} /> Votre Panier
+            <Ionicons name="cart" size={24} color={PRIMARY_COLOR} /> Liste des commandes
           </Text>
           <ScrollView style={styles.modalScrollView}>
             {cart.length === 0 ? (
@@ -346,7 +346,7 @@ export default function KiosqueMenu({ route, navigation }) {
             )}
           </ScrollView>
 
-          <Text style={styles.totalText}>Total à payer : {totalPrice.toFixed(2)} Ar</Text>
+          <Text style={styles.totalText}>Total : {totalPrice.toFixed(2)} Ar</Text>
 
           <TouchableOpacity
             style={[styles.payBtn, processingPayment || cart.length === 0 ? styles.payBtnDisabled : null]}
@@ -362,7 +362,7 @@ export default function KiosqueMenu({ route, navigation }) {
             )}
           >
             <Text style={styles.payText}>
-              {processingPayment ? "⏳ Traitement en cours..." : "✅ Payer et commander"}
+              {processingPayment ? "⏳ Traitement en cours..." : "✅commander"}
             </Text>
           </TouchableOpacity>
 
@@ -526,8 +526,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'center',
     paddingHorizontal: 20,
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
     elevation: 5,
   },
   headerText: { color: CARD_COLOR, fontSize: 24, flex: 1, fontWeight: 'bold' },

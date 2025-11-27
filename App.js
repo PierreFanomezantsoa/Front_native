@@ -2,12 +2,13 @@ import { StyleSheet } from 'react-native';
 import Acceuil from './Composant/Acceuil';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import AjoutDonne from './Composant/Menu/AjoutMenu';
-import Publications from './Composant/Menu/Publication';
+import AjoutDonne from './Composant/Command/AjoutMenu';
+import Publications from './Composant/publication/Publication';
 import MenuCards from './Composant/Menu/Menu';
 import Hisorique from './Composant/Menu/Historique';
 import AdminLogin from './Composant/Admin/AdminLogin';
 import CommandList from './Composant/Command/ListeCommande';
+import AdminPublication from './Composant/publication/AdminPublication'
 // variable constante pour la navigation
 const Stack = createNativeStackNavigator();
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
         <Stack.Screen name="Historique" component={Hisorique} />
         <Stack.Screen name="admin" component={AdminLogin} />
         <Stack.Screen name="listecommande" component={CommandList} />
+        <Stack.Screen name="adminPublication" component={AdminPublication} />
       </Stack.Navigator>
     </NavigationContainer>
   );
