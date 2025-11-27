@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator, Image,
   TouchableOpacity, Modal, Dimensions, Alert, Share, Platform, StatusBar, TextInput,
+  // Ajout de FlatList pour la liste verticale optimisée
   FlatList 
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,6 +34,11 @@ export default function KiosqueMenu({ route, navigation }) {
   const [notifications, setNotifications] = useState([]);
   const [showNotif, setShowNotif] = useState(false);
   const [storedTable, setStoredTable] = useState(null);
+
+  // Supprimé: const scrollRef = useRef();
+  // Supprimé: const currentIndex = useRef(0);
+
+  // ... (Logique de chargement de table et menu inchangée) ...
 
   // Charger tableNumber depuis AsyncStorage
   useEffect(() => {
@@ -178,33 +184,44 @@ export default function KiosqueMenu({ route, navigation }) {
     return matchCategory && matchName;
   });
 
-  // Composant d'une carte de menu (pour FlatList) - ADAPTÉ À LA GRILLE
+  // Suppression de l'auto-scroll
+  /* useEffect(() => {
+    if (filteredMenu.length <= 1) return;
+    const interval = setInterval(() => {
+      currentIndex.current = (currentIndex.current + 1) % filteredMenu.length;
+      scrollRef.current?.scrollTo({ x: currentIndex.current * (screenWidth - 40), animated: true });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [filteredMenu, selectedCategory]);
+  */
+
+  // Composant d'une carte de menu (pour FlatList)
   const renderMenuItem = ({ item: e }) => (
-    <View key={e.id} style={styles.cardGrid}>
+    <View key={e.id} style={styles.cardList}>
       {e.image ? (
-        <Image source={{ uri: e.image }} style={styles.imageGrid} />
+        <Image source={{ uri: e.image }} style={styles.imageList} />
       ) : (
-        <View style={styles.imageFallbackGrid}>
-          <Text style={{ color: CARD_COLOR, fontWeight: 'bold', textAlign: 'center' }}>[Image manquante]</Text>
+        <View style={styles.imageFallbackList}>
+          <Text style={{ color: CARD_COLOR, fontWeight: 'bold' }}>[Image manquante]</Text>
         </View>
       )}
-      <View style={styles.textBoxGrid}>
-        <Text style={styles.nameGrid} numberOfLines={1}>{getItemName(e)}</Text>
-        <Text style={styles.descGrid} numberOfLines={2}>{e.description}</Text>
-        {storedTable && <Text style={styles.tableNumberGrid}>Table: {storedTable}</Text>}
-        <View style={styles.priceOrderContainerGrid}>
-          <Text style={styles.priceGrid}>{getItemPrice(e).toFixed(2)} Ar</Text>
-          <TouchableOpacity style={styles.orderBtnGrid} onPress={() => addToCart(e)}>
-            <FontAwesome name="cart-plus" size={16} color={CARD_COLOR} />
-            <Text style={styles.orderBtnText}>Ajouter</Text>
+      <View style={styles.textBox}>
+        <Text style={styles.nameList} numberOfLines={1}>{getItemName(e)}</Text>
+        <Text style={styles.descList} numberOfLines={2}>{e.description}</Text>
+        {storedTable && <Text style={styles.tableNumber}>Table: {storedTable}</Text>}
+        <View style={styles.priceOrderContainer}>
+          <Text style={styles.priceList}>{getItemPrice(e).toFixed(2)} Ar</Text>
+          <TouchableOpacity style={styles.orderBtnListVertical} onPress={() => addToCart(e)}>
+            <FontAwesome name="cart-plus" size={20} color={CARD_COLOR} />
           </TouchableOpacity>
         </View>
       </View>
     </View>
   );
 
-  // Modals
+  // Modals (inchangées, masquées pour la concision)
   const RenderNotificationModal = () => (
+    /* ... code du modal de notification inchangé ... */
     <Modal visible={showNotif} transparent animationType="slide" onRequestClose={() => setShowNotif(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalBox}>
@@ -237,6 +254,7 @@ export default function KiosqueMenu({ route, navigation }) {
   );
   
   const RenderCartModal = () => (
+    /* ... code du modal du panier inchangé ... */
     <Modal visible={showCart} transparent animationType="slide" onRequestClose={() => setShowCart(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalBox}>
@@ -281,7 +299,7 @@ export default function KiosqueMenu({ route, navigation }) {
             )}
           >
             <Text style={styles.payText}>
-              {processingPayment ? "⏳ Traitement en cours..." : "✅ Commander"}
+              {processingPayment ? "⏳ Traitement en cours..." : "✅commander"}
             </Text>
           </TouchableOpacity>
 
@@ -344,7 +362,7 @@ export default function KiosqueMenu({ route, navigation }) {
               <TouchableOpacity 
                 key={cat}
                 style={[styles.categoryButton, selectedCategory === cat && styles.categorySelected]}
-                onPress={() => setSelectedCategory(cat)} 
+                onPress={() => setSelectedCategory(cat)} // Plus de scrollRef.current?.scrollTo
               >
                 <Text style={[styles.categoryText, selectedCategory === cat && styles.categoryTextSelected]}>
                   {cat}
@@ -360,7 +378,7 @@ export default function KiosqueMenu({ route, navigation }) {
             placeholder="Rechercher par nom..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            style={styles.searchInput} 
+            style={styles.searchInput} // Style déplacé
           />
         </View>
 
@@ -373,8 +391,6 @@ export default function KiosqueMenu({ route, navigation }) {
             renderItem={renderMenuItem}
             keyExtractor={item => item.id.toString()}
             contentContainerStyle={styles.listContainer}
-            // MODIFICATION CLÉ : Affiche deux colonnes
-            numColumns={2} 
             ListEmptyComponent={() => (
               <View style={styles.emptyListMessage}>
                 <Ionicons name="sad-outline" size={40} color="gray" />
@@ -394,19 +410,19 @@ export default function KiosqueMenu({ route, navigation }) {
           <FontAwesome name="home" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Accueil</Text>
         </TouchableOpacity>
-      
+    
         <TouchableOpacity style={[styles.bottomBtn, styles.activeBtn]} onPress={() => navigation.navigate("menuList")}>
           <View style={styles.activeIndicator}>
             <FontAwesome name="list" size={24} color="#fff" />
           </View>
           <Text style={[styles.bottomText, styles.activeText]}>Menus</Text>
         </TouchableOpacity>
-      
+    
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate("Publications")}>
           <FontAwesome name="bullhorn" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Publi.</Text>
         </TouchableOpacity>
-      
+    
         <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate("admin")}>
           <FontAwesome name="cog" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Admin</Text>
@@ -431,6 +447,7 @@ const styles = StyleSheet.create({
   categoryText: { color: PRIMARY_COLOR, fontWeight: '500' },
   categoryTextSelected: { color: CARD_COLOR },
   
+  // Nouveau style pour la recherche
   searchInput: {
     backgroundColor: CARD_COLOR,
     padding: 10,
@@ -440,62 +457,33 @@ const styles = StyleSheet.create({
     fontSize: 16
   },
 
-  // Styles pour la FlatList en GRILLE (2 colonnes)
-  listContainer: { paddingHorizontal: 10, paddingBottom: 80, paddingTop: 5 }, 
-  
-  cardGrid: {
-    // MODIFICATION CLÉ : Définit la largeur à ~50% (screenWidth/2 - 10 pour le padding horizontal global)
-    width: screenWidth / 2 - 15, 
-    marginHorizontal: 5, // Marge entre les colonnes
-    marginBottom: 15, // Marge entre les lignes
-    
+  // Styles pour la FlatList
+  listContainer: { paddingHorizontal: 15, paddingBottom: 80, paddingTop: 5 }, // Ajout de paddingBottom pour la barre du bas
+  cardList: {
     backgroundColor: CARD_COLOR,
     borderRadius: 15,
+    marginBottom: 15, // Marge entre les cartes
     overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
+    elevation: 3, // Ombre pour Android
+    shadowColor: '#000', // Ombre pour iOS
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    flexDirection: 'row', // Changement pour une présentation plus compacte
+    height: 120, // Hauteur fixe pour une meilleure uniformité
   },
-  imageGrid: { 
-    width: '100%', 
-    height: 120, 
-    borderTopLeftRadius: 15, 
-    borderTopRightRadius: 15 
-  }, 
-  imageFallbackGrid: { 
-    width: '100%', 
-    height: 120, 
-    backgroundColor: ACCENT_COLOR, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    borderTopLeftRadius: 15, 
-    borderTopRightRadius: 15 
-  },
-  textBoxGrid: { flex: 1, padding: 8, justifyContent: 'space-between' },
-  nameGrid: { fontSize: 14, fontWeight: 'bold', color: '#333' },
-  descGrid: { fontSize: 10, color: '#666', marginVertical: 2, height: 30 },
-  tableNumberGrid: { fontSize: 9, color: 'gray' },
-  priceOrderContainerGrid: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
-  priceGrid: { fontSize: 14, fontWeight: '700', color: PRIMARY_COLOR },
-  orderBtnGrid: { 
-    backgroundColor: ACCENT_COLOR, 
-    paddingHorizontal: 10,
-    paddingVertical: 5, 
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  orderBtnText: {
-    color: CARD_COLOR,
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 5
-  },
+  imageList: { width: 120, height: '100%', borderTopLeftRadius: 15, borderBottomLeftRadius: 15 }, // Largeur fixe
+  imageFallbackList: { width: 120, height: '100%', backgroundColor: ACCENT_COLOR, justifyContent: 'center', alignItems: 'center', borderTopLeftRadius: 15, borderBottomLeftRadius: 15 },
+  textBox: { flex: 1, padding: 10, justifyContent: 'space-between' },
+  nameList: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  descList: { fontSize: 12, color: '#666', marginVertical: 2, flex: 1 },
+  tableNumber: { fontSize: 10, color: 'gray' },
+  priceOrderContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
+  priceList: { fontSize: 16, fontWeight: '700', color: PRIMARY_COLOR },
+  orderBtnListVertical: { backgroundColor: ACCENT_COLOR, padding: 8, borderRadius: 10 }, // Bouton plus petit, couleur accent
   emptyListMessage: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 50 },
 
-  // Styles Modal (inchangés)
+  // Styles Modal (inchangés, copiés pour la complétude)
   modalContainer: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalBox: { backgroundColor: CARD_COLOR, margin: 20, borderRadius: 15, padding: 15, maxHeight: '80%' },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },

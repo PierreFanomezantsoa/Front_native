@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
-  FlatList,
+  ScrollView,
   StyleSheet,
   ActivityIndicator,
   Image,
@@ -11,29 +11,35 @@ import {
   Platform,
   Dimensions,
   Animated,
-  ScrollView,
+  Alert,
 } from "react-native";
 import axios from "axios";
 import { io } from "socket.io-client";
 import { FontAwesome } from "@expo/vector-icons";
-import { LinearGradient } from 'expo-linear-gradient';
+import { LinearGradient } from "expo-linear-gradient";
 
 const API_URL = "http://192.168.1.133:3000";
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
-const PRIMARY_COLOR = "#008080"; 
-const ACCENT_COLOR = "#4CAF50";  
+// Couleurs
+const PRIMARY_COLOR = "#008080";
+const ACCENT_COLOR = "#4CAF50";
+const BUTTON_COLOR = "#FF4500";
 const BACKGROUND_COLOR = "#F4F7F9";
 const CARD_COLOR = "#FFFFFF";
+const TEXT_COLOR_DARK = "#1A1A1A";
 
 export default function PublicationScreen({ navigation }) {
   const [publications, setPublications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
+
   const socketRef = useRef(null);
   const scrollViewRef = useRef(null);
   const autoScrollTimer = useRef(null);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
+  // --- Fetch publications ---
   const getPublications = async () => {
     try {
       const res = await axios.get(`${API_URL}/publications`);
@@ -45,69 +51,180 @@ export default function PublicationScreen({ navigation }) {
     }
   };
 
-  // Auto-scroll toutes les 10 secondes
-  useEffect(() => {
-    if (publications.length > 0) {
-      autoScrollTimer.current = setInterval(() => {
-        setCurrentIndex((prevIndex) => {
-          const nextIndex = (prevIndex + 1) % publications.length;
-          scrollViewRef.current?.scrollTo({
-            x: nextIndex * width,
-            animated: true,
-          });
-          return nextIndex;
-        });
-      }, 10000); // 10 secondes
-
-      return () => {
-        if (autoScrollTimer.current) {
-          clearInterval(autoScrollTimer.current);
-        }
-      };
-    }
-  }, [publications.length]);
-
-  const handleScroll = (event) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / width);
-    setCurrentIndex(index);
+  // --- Handle Order ---
+  const handleOrder = (item) => {
+    Alert.alert(
+      "Passer la commande",
+      `Vous souhaitez commander : ${item.nom}. Ceci mènerait à l'écran de commande.`
+    );
+    // navigation.navigate("OrderScreen", { publicationId: item.id });
   };
 
-  const handleMomentumScrollEnd = (event) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / width);
-    setCurrentIndex(index);
-  };
-
+  // --- WebSocket et gestion des publications ---
   useEffect(() => {
     getPublications();
 
-    socketRef.current = io(API_URL, { transports: ["websocket"] });
+    const socket = io(API_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+    socketRef.current = socket;
 
-    socketRef.current.on("publication_created", (pub) => {
-      setPublications((prev) => [pub, ...prev]);
+    socket.on("connect", () => console.log("Socket connecté:", socket.id));
+    socket.on("disconnect", () => console.log("Socket déconnecté"));
+
+    socket.on("publication_created", (pub) => {
+      setPublications((prev) => {
+        if (prev.find((p) => p.id === pub.id)) return prev;
+        return [pub, ...prev];
+      });
+      setCurrentIndex(0);
+      scrollViewRef.current?.scrollTo({ x: 0, animated: true });
+      Animated.sequence([
+        Animated.spring(scaleAnim, { toValue: 1.05, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
+      ]).start();
     });
 
-    socketRef.current.on("publication_updated", (pub) => {
-      setPublications((prev) => prev.map((p) => (p.id === pub.id ? pub : p)));
+    socket.on("publication_updated", (pub) => {
+      setPublications((prev) =>
+        prev.map((p) => (p.id === pub.id ? { ...pub, _updated: true } : p))
+      );
+      setTimeout(() => {
+        setPublications((prev) =>
+          prev.map((p) => ({ ...p, _updated: false }))
+        );
+      }, 2000);
     });
 
-    socketRef.current.on("publication_deleted", ({ id }) => {
+    socket.on("publication_deleted", ({ id }) => {
       setPublications((prev) => prev.filter((p) => p.id !== id));
     });
 
     return () => {
-      socketRef.current.disconnect();
+      socket.off("publication_created");
+      socket.off("publication_updated");
+      socket.off("publication_deleted");
+      socket.disconnect();
     };
   }, []);
 
+  // --- Auto-scroll carousel ---
+  useEffect(() => {
+    if (publications.length === 0) return;
+
+    const timer = setInterval(() => {
+      setCurrentIndex((prevIndex) => {
+        const nextIndex = (prevIndex + 1) % publications.length;
+        const cardWidthWithMargin = width * 0.9 + width * 0.1;
+        scrollViewRef.current?.scrollTo({
+          x: nextIndex * cardWidthWithMargin,
+          animated: true,
+        });
+        return nextIndex;
+      });
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [publications.length]);
+
+  // --- Handle scroll ---
+  const handleScroll = (event) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const cardWidthWithMargin = width * 0.9 + width * 0.1;
+    setCurrentIndex(Math.round(offsetX / cardWidthWithMargin));
+  };
+
+  // --- Publication Card ---
+  const PublicationCard = ({ item, scaleAnim, isCurrent }) => {
+    const isPromo = item.prixPromo && item.prix && item.prixPromo < item.prix;
+    const priceToDisplay = isPromo ? item.prixPromo : item.prix;
+
+    return (
+      <Animated.View
+        style={[
+          styles.carouselCard,
+          item._updated && styles.updatedCard,
+          isCurrent && { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        {item.image ? (
+          <View style={styles.imageContainer}>
+            <Image
+              source={{ uri: item.image }}
+              style={styles.carouselImage}
+              resizeMode="cover"
+            />
+            {isPromo && (
+              <View style={styles.promoBadge}>
+                <FontAwesome name="star" size={12} color="#fff" />
+                <Text style={styles.promoText}>PROMO</Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={styles.noImageContainer}>
+            <FontAwesome name="image" size={64} color="#ccc" />
+          </View>
+        )}
+        <View style={styles.cardContent}>
+          <Text style={styles.nom} numberOfLines={2}>
+            {item.nom}
+          </Text>
+          <Text style={styles.desc} numberOfLines={3}>
+            {item.description}
+          </Text>
+
+          <View style={styles.priceContainerSolo}>
+            {isPromo && (
+              <View style={styles.oldPriceContainer}>
+                <Text style={styles.prixBarre}>{item.prix} Ar</Text>
+                <View style={styles.strikethrough} />
+              </View>
+            )}
+            {priceToDisplay && (
+              <View style={styles.currentPriceContainer}>
+                <FontAwesome
+                  name="money"
+                  size={20}
+                  color={isPromo ? BUTTON_COLOR : PRIMARY_COLOR}
+                />
+                <Text
+                  style={[styles.prixDisplay, isPromo && styles.promoPrixDisplay]}
+                >
+                  {priceToDisplay} Ar
+                </Text>
+              </View>
+            )}
+            {isPromo && (
+              <View style={styles.savingsContainer}>
+                <Text style={styles.savingsText}>
+                  🎉 Économisez {item.prix - item.prixPromo} Ar
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={styles.fullWidthOrderButton}
+            onPress={() => handleOrder(item)}
+          >
+            <FontAwesome name="cart-plus" size={20} color="#fff" />
+            <Text style={styles.orderButtonText}>Commander Maintenant</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    );
+  };
+
+  // --- Rendu ---
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={PRIMARY_COLOR} />
-
-      {/* TOP BAR avec Gradient */}
       <LinearGradient
-        colors={[PRIMARY_COLOR, '#006666']}
+        colors={[PRIMARY_COLOR, "#006666"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.topBar}
@@ -117,10 +234,9 @@ export default function PublicationScreen({ navigation }) {
             <View style={styles.iconBadge}>
               <FontAwesome name="bullhorn" size={20} color="#fff" />
             </View>
-            <Text style={styles.topTitle}>Publications</Text>
+            <Text style={styles.topTitle}>Offres du Jour</Text>
           </View>
-
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.menuButton}
             onPress={() => navigation.openDrawer?.()}
           >
@@ -132,12 +248,14 @@ export default function PublicationScreen({ navigation }) {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={PRIMARY_COLOR} />
-          <Text style={styles.loadingText}>Chargement...</Text>
+          <Text style={styles.loadingText}>Chargement des publications...</Text>
         </View>
       ) : publications.length === 0 ? (
         <View style={styles.emptyContainer}>
           <FontAwesome name="inbox" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>Aucune publication disponible</Text>
+          <Text style={styles.emptyText}>
+            Aucune offre spéciale disponible pour le moment.
+          </Text>
         </View>
       ) : (
         <View style={styles.carouselContainer}>
@@ -147,67 +265,19 @@ export default function PublicationScreen({ navigation }) {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onScroll={handleScroll}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
             scrollEventThrottle={16}
-            decelerationRate="fast"
+            contentContainerStyle={styles.scrollViewContent}
           >
             {publications.map((item, index) => (
-              <TouchableOpacity 
+              <PublicationCard
                 key={item.id}
-                style={styles.carouselCard}
-                activeOpacity={0.9}
-              >
-                {item.image ? (
-                  <View style={styles.imageContainer}>
-                    <Image 
-                      source={{ uri: item.image }} 
-                      style={styles.carouselImage}
-                      resizeMode="cover"
-                    />
-                    {item.prixPromo && (
-                      <View style={styles.promoBadge}>
-                        <FontAwesome name="star" size={12} color="#fff" />
-                        <Text style={styles.promoText}>PROMO</Text>
-                      </View>
-                    )}
-                  </View>
-                ) : (
-                  <View style={styles.noImageContainer}>
-                    <FontAwesome name="image" size={64} color="#ccc" />
-                  </View>
-                )}
-
-                <View style={styles.cardContent}>
-                  <Text style={styles.nom} numberOfLines={2}>{item.nom}</Text>
-                  <Text style={styles.desc} numberOfLines={4}>{item.description}</Text>
-
-                  <View style={styles.priceContainer}>
-                    {item.prix ? (
-                      <View style={styles.oldPriceContainer}>
-                        <Text style={styles.prix}>{item.prix} Ar</Text>
-                        <View style={styles.strikethrough} />
-                      </View>
-                    ) : null}
-
-                    <View style={styles.promoPriceContainer}>
-                      <FontAwesome name="tag" size={18} color="#FF6B6B" />
-                      <Text style={styles.prixPromo}>{item.prixPromo} Ar</Text>
-                    </View>
-                  </View>
-
-                  {item.prix && item.prixPromo && (
-                    <View style={styles.savingsContainer}>
-                      <Text style={styles.savingsText}>
-                        💰 Économisez {item.prix - item.prixPromo} Ar
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
+                item={item}
+                scaleAnim={scaleAnim}
+                isCurrent={currentIndex === index}
+              />
             ))}
           </ScrollView>
 
-          {/* Indicateurs de pagination */}
           <View style={styles.pagination}>
             {publications.map((_, index) => (
               <View
@@ -220,7 +290,6 @@ export default function PublicationScreen({ navigation }) {
             ))}
           </View>
 
-          {/* Compteur */}
           <View style={styles.counter}>
             <Text style={styles.counterText}>
               {currentIndex + 1} / {publications.length}
@@ -229,26 +298,23 @@ export default function PublicationScreen({ navigation }) {
         </View>
       )}
 
-      {/* BOTTOM BAR avec ombre élégante */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity 
-          style={styles.bottomBtn} 
+        <TouchableOpacity
+          style={styles.bottomBtn}
           onPress={() => navigation.navigate("accueil")}
         >
           <FontAwesome name="home" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Accueil</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.bottomBtn} 
+        <TouchableOpacity
+          style={styles.bottomBtn}
           onPress={() => navigation.navigate("menuList")}
         >
           <FontAwesome name="list" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Menus</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.bottomBtn, styles.activeBtn]} 
+        <TouchableOpacity
+          style={styles.bottomBtn}
           onPress={() => navigation.navigate("Publications")}
         >
           <View style={styles.activeIndicator}>
@@ -256,9 +322,8 @@ export default function PublicationScreen({ navigation }) {
           </View>
           <Text style={[styles.bottomText, styles.activeText]}>Publi.</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.bottomBtn} 
+        <TouchableOpacity
+          style={styles.bottomBtn}
           onPress={() => navigation.navigate("admin")}
         >
           <FontAwesome name="cog" size={24} color={PRIMARY_COLOR} />
@@ -269,13 +334,9 @@ export default function PublicationScreen({ navigation }) {
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1,
-    backgroundColor: BACKGROUND_COLOR,
-  },
-
-  /* TOP BAR */
+  container: { flex: 1, backgroundColor: BACKGROUND_COLOR },
   topBar: {
     height: Platform.OS === "android" ? 90 : 100,
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 40,
@@ -285,298 +346,46 @@ const styles = StyleSheet.create({
     shadowRadius: 4.65,
     elevation: 8,
   },
-  topBarContent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-  },
-  titleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  iconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  topTitle: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  /* LOADING */
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-
-  /* LIST */
-  listContent: {
-    paddingTop: 15,
-    paddingBottom: 85,
-    paddingHorizontal: 16,
-  },
-
-  /* CAROUSEL */
-  carouselContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  carouselCard: {
-    width: width,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  carouselImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 20,
-  },
-  noImageContainer: {
-    width: '100%',
-    height: 300,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  /* CARD */
-  card: {
-    marginBottom: 16,
-    borderRadius: 16,
-    backgroundColor: CARD_COLOR,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    overflow: 'hidden',
-  },
-  imageContainer: {
-    position: 'relative',
-    width: '100%',
-    height: 300,
-    marginBottom: 16,
-  },
-  image: {
-    width: "100%",
-    height: '100%',
-  },
-  promoBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: '#FF6B6B',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  promoText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  cardContent: {
-    backgroundColor: CARD_COLOR,
-    padding: 20,
-    borderRadius: 20,
-    marginTop: -10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  nom: { 
-    fontSize: 24, 
-    fontWeight: "bold",
-    color: '#1a1a1a',
-    marginBottom: 10,
-  },
-  desc: { 
-    fontSize: 15, 
-    color: "#666",
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
-  },
-  oldPriceContainer: {
-    position: 'relative',
-  },
-  prix: { 
-    fontSize: 16, 
-    fontWeight: "500", 
-    color: '#999',
-  },
-  strikethrough: {
-    position: 'absolute',
-    top: '50%',
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: '#999',
-  },
-  promoPriceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  prixPromo: { 
-    fontSize: 26, 
-    color: "#FF6B6B", 
-    fontWeight: "bold",
-  },
-  savingsContainer: {
-    marginTop: 12,
-    alignSelf: 'flex-start',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  savingsText: {
-    fontSize: 13,
-    color: ACCENT_COLOR,
-    fontWeight: '600',
-  },
-
-  /* PAGINATION */
-  pagination: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  paginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#D1D5DB',
-    transition: 'all 0.3s',
-  },
-  paginationDotActive: {
-    width: 24,
-    height: 8,
-    backgroundColor: PRIMARY_COLOR,
-  },
-
-  /* COUNTER */
-  counter: {
-    position: 'absolute',
-    bottom: 90,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  counterText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
-  /* EMPTY STATE */
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#999',
-  },
-
-  /* BOTTOM BAR */
-  bottomBar: {
-    height: 70,
-    flexDirection: "row",
-    backgroundColor: CARD_COLOR,
-    justifyContent: "space-around",
-    alignItems: "center",
-    paddingBottom: Platform.OS === "ios" ? 20 : 0,
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  bottomBtn: {
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  activeBtn: {
-    // Style pour le bouton actif
-  },
-  activeIndicator: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: PRIMARY_COLOR,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: PRIMARY_COLOR,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
-  },
-  bottomText: {
-    fontSize: 11,
-    color: PRIMARY_COLOR,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  activeText: {
-    color: PRIMARY_COLOR,
-    fontWeight: "700",
-  },
+  topBarContent: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20 },
+  titleContainer: { flexDirection: "row", alignItems: "center", gap: 12 },
+  iconBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
+  topTitle: { color: "white", fontSize: 22, fontWeight: "700", letterSpacing: 0.5 },
+  menuButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 10, fontSize: 16, color: "#666" },
+  carouselContainer: { flex: 1, position: "relative" },
+  scrollViewContent: { alignItems: 'center', paddingVertical: 10 },
+  carouselCard: { width: width * 0.9, marginHorizontal: width * 0.05, borderRadius: 16, backgroundColor: CARD_COLOR, marginBottom: 16, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.18, shadowRadius: 4.65, elevation: 6 },
+  updatedCard: { borderWidth: 3, borderColor: BUTTON_COLOR },
+  carouselImage: { width: "100%", height: "100%" },
+  imageContainer: { position: "relative", width: "100%", height: 200, borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden' },
+  promoBadge: { position: "absolute", top: 12, right: 12, backgroundColor: BUTTON_COLOR, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15, gap: 5 },
+  promoText: { color: "#fff", fontSize: 12, fontWeight: "bold" },
+  noImageContainer: { width: "100%", height: 200, backgroundColor: "#e0e0e0", borderTopLeftRadius: 16, borderTopRightRadius: 16, justifyContent: "center", alignItems: "center" },
+  cardContent: { padding: 18 },
+  nom: { fontSize: 20, fontWeight: "700", color: TEXT_COLOR_DARK, marginBottom: 6 },
+  desc: { fontSize: 14, color: "#444", lineHeight: 20, marginBottom: 12 },
+  priceContainerSolo: { flexDirection: 'column', alignItems: 'flex-start', paddingVertical: 10, marginBottom: 15, borderTopWidth: 1, borderTopColor: BACKGROUND_COLOR, paddingTop: 15 },
+  oldPriceContainer: { position: "relative", marginBottom: 2 },
+  prixBarre: { fontSize: 14, fontWeight: "500", color: "#999" },
+  strikethrough: { position: "absolute", top: "50%", left: 0, right: 0, height: 1.5, backgroundColor: "#999" },
+  currentPriceContainer: { flexDirection: "row", alignItems: "center", gap: 8 },
+  prixDisplay: { fontSize: 22, color: PRIMARY_COLOR, fontWeight: "bold" },
+  promoPrixDisplay: { fontSize: 26, color: BUTTON_COLOR, fontWeight: "900" },
+  savingsContainer: { marginTop: 6, alignSelf: "flex-start", backgroundColor: ACCENT_COLOR + '10', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: ACCENT_COLOR },
+  savingsText: { fontSize: 13, color: ACCENT_COLOR, fontWeight: "600" },
+  fullWidthOrderButton: { backgroundColor: BUTTON_COLOR, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, shadowColor: BUTTON_COLOR, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 8 },
+  orderButtonText: { color: "#fff", fontSize: 16, fontWeight: "800", textTransform: 'uppercase' },
+  pagination: { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingVertical: 15, gap: 10 },
+  paginationDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#D1D5DB" },
+  paginationDotActive: { width: 28, height: 8, backgroundColor: PRIMARY_COLOR, borderRadius: 4 },
+  counter: { position: "absolute", bottom: 90, right: 20, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15 },
+  counterText: { color: "#fff", fontSize: 11, fontWeight: "600" },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 100 },
+  emptyText: { marginTop: 16, fontSize: 16, color: "#999" },
+  bottomBar: { height: 70, flexDirection: "row", backgroundColor: CARD_COLOR, justifyContent: "space-around", alignItems: "center", paddingBottom: Platform.OS === "ios" ? 20 : 0, position: "absolute", bottom: 0, left: 0, right: 0, shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
+  bottomBtn: { justifyContent: "center", alignItems: "center", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 },
+  activeIndicator: { width: 50, height: 50, borderRadius: 25, backgroundColor: PRIMARY_COLOR, justifyContent: "center", alignItems: "center" },
+  bottomText: { fontSize: 11, color: PRIMARY_COLOR, marginTop: 4, fontWeight: "600" },
+  activeText: { color: PRIMARY_COLOR, fontWeight: "700" },
 });
