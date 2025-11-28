@@ -16,7 +16,7 @@ import io from "socket.io-client";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.1.133:3000";
+const API_URL = "http://192.168.137.118:3000";
 
 const COLORS = {
   primary: "#008080",

@@ -8,8 +8,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import io from 'socket.io-client';
 
 // === CONFIG ===
-const API_URL = "http://192.168.1.133:3000"; 
-const SOCKET_URL = "http://192.168.1.133:3000";
+const API_URL = "http://192.168.137.118:3000"; 
+const SOCKET_URL = "http://192.168.137.118:3000";
 
 // Constantes de design cohérentes avec Accueil
 const PRIMARY_COLOR = '#008080'; // Teal (Bleu-vert)

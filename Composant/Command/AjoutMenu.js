@@ -18,7 +18,7 @@ const ACCENT_COLOR = '#D32F2F'; // Rouge pour danger/suppression
 const TERTIARY_COLOR = '#FF9800'; // Orange pour l'alerte/nouveauté (badge)
 
 const { width } = Dimensions.get('window');
-const BACKEND_URL = 'http://192.168.1.133:3000';
+const BACKEND_URL = 'http://192.168.137.118:3000';
 // --------------------------------------------------------------------------
 
 export default function MenuList({ navigation }) {

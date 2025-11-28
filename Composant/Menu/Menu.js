@@ -62,7 +62,7 @@ export default function KiosqueMenu({ route, navigation }) {
   // Charger menu
   const loadMenu = async () => {
     try {
-      const res = await fetch("http://192.168.1.133:3000/menus");
+      const res = await fetch("http://192.168.137.118:3000/menus");
       if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
       const data = await res.json();
       const items = Array.isArray(data) ? data : Array.isArray(data.menus) ? data.menus : [];
@@ -134,7 +134,7 @@ export default function KiosqueMenu({ route, navigation }) {
         status: 'Payée',
         items: itemsJson,
       };
-      const response = await fetch('http://192.168.1.133:3000/commande', {
+      const response = await fetch('http://192.168.137.118:3000/commande', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -192,8 +192,10 @@ export default function KiosqueMenu({ route, navigation }) {
         <Text style={styles.nameGrid} numberOfLines={1}>{getItemName(e)}</Text>
         <Text style={styles.descGrid} numberOfLines={2}>{e.description}</Text>
         {storedTable && <Text style={styles.tableNumberGrid}>Table: {storedTable}</Text>}
-        <View style={styles.priceOrderContainerGrid}>
+        <View style={styles.priceOrderContainerGrid1}>
           <Text style={styles.priceGrid}>{getItemPrice(e).toFixed(2)} Ar</Text>
+        </View>
+        <View style={styles.priceOrderContainerGrid}>
           <TouchableOpacity style={styles.orderBtnGrid} onPress={() => addToCart(e)}>
             <FontAwesome name="cart-plus" size={16} color={CARD_COLOR} />
             <Text style={styles.orderBtnText}>Ajouter</Text>
@@ -406,11 +408,6 @@ export default function KiosqueMenu({ route, navigation }) {
           <FontAwesome name="bullhorn" size={24} color={PRIMARY_COLOR} />
           <Text style={styles.bottomText}>Publi.</Text>
         </TouchableOpacity>
-      
-        <TouchableOpacity style={styles.bottomBtn} onPress={() => navigation.navigate("admin")}>
-          <FontAwesome name="cog" size={24} color={PRIMARY_COLOR} />
-          <Text style={styles.bottomText}>Admin</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -474,18 +471,21 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 15 
   },
   textBoxGrid: { flex: 1, padding: 8, justifyContent: 'space-between' },
-  nameGrid: { fontSize: 14, fontWeight: 'bold', color: '#333' },
-  descGrid: { fontSize: 10, color: '#666', marginVertical: 2, height: 30 },
-  tableNumberGrid: { fontSize: 9, color: 'gray' },
+  nameGrid: { fontSize: 14, fontWeight: 'bold', color: '#333' ,marginLeft:25},
+  descGrid: { fontSize: 10, color: '#666', marginVertical: 2, height: 30 ,marginLeft:45},
+  tableNumberGrid: { fontSize: 9, color: 'gray',marginLeft:45 },
   priceOrderContainerGrid: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
-  priceGrid: { fontSize: 14, fontWeight: '700', color: PRIMARY_COLOR },
+  priceOrderContainerGrid1: {  justifyContent: 'center', textAlign: 'center', marginTop: 5 ,marginLeft: 25},
+  priceGrid: { fontSize: 14, fontWeight: '700', color: PRIMARY_COLOR , alignItems: 'center'},
   orderBtnGrid: { 
     backgroundColor: ACCENT_COLOR, 
     paddingHorizontal: 10,
     paddingVertical: 5, 
     borderRadius: 8,
+    width: '100%', 
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: "center",
   },
   orderBtnText: {
     color: CARD_COLOR,

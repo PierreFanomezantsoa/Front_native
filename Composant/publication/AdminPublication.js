@@ -18,28 +18,271 @@ import {
   Platform,
   ScrollView,
   StatusBar,
+  Modal, // <-- NOUVEAU: Import de Modal
 } from "react-native";
 import axios from "axios";
 import { io } from "socket.io-client";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 
-const API_URL = "http://192.168.1.133:3000";
-const PRIMARY = "#2563EB";
-const DANGER = "#DC2626";
-const SUCCESS = "#10B981";
-const CARD_BG = "#FFF";
-const BG = "#F8FAFC";
-const GRAY_TEXT = "#64748B";
+// ===================================================================
+//        CONSTANTES DE STYLE ET API (Plus claires)
+// ===================================================================
+const API_URL = "http://192.168.137.118:3000"; // URL à adapter
+const COLOR_PALETTE = {
+  primary: "#4F46E5", // Indigo plus vibrant
+  secondary: "#10B981", // Vert succès
+  danger: "#EF4444", // Rouge danger
+  background: "#F9FAFB", // Fond très clair
+  cardBg: "#FFFFFF",
+  textBase: "#1F2937",
+  textMuted: "#6B7280",
+  border: "#E5E7EB",
+};
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
 // ===================================================================
-//        COMPOSANT PRINCIPAL
+//        COMPOSANT: PublicationCard (Amélioré)
+// (NON MODIFIÉ, MAIS INCLUS POUR LA CLARTÉ)
+// ===================================================================
+const PublicationCard = React.memo(({ item, editAction, deleteAction }) => {
+  const prixInitial = parseFloat(item.prix);
+  const prixPromo = parseFloat(item.prixPromo);
+  const hasDiscount = !isNaN(prixInitial) && !isNaN(prixPromo) && prixInitial > prixPromo;
+  const discountPercent = hasDiscount
+    ? Math.round(((prixInitial - prixPromo) / prixInitial) * 100)
+    : 0;
+
+  return (
+    <View style={cardStyles.card}>
+      {/* Image */}
+      <View style={cardStyles.cardImageContainer}>
+        {item.image ? (
+          <Image
+            source={{ uri: item.image }}
+            style={cardStyles.cardImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={cardStyles.noImage}>
+            <Ionicons name="image-outline" size={60} color={COLOR_PALETTE.textMuted} />
+          </View>
+        )}
+        
+        {/* Badge de réduction */}
+        {hasDiscount && discountPercent > 0 && (
+          <View style={cardStyles.discountBadge}>
+            <Text style={cardStyles.discountText}>-{discountPercent}%</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Contenu */}
+      <View style={cardStyles.cardBody}>
+        <Text style={cardStyles.cardTitle} numberOfLines={2}>
+          {item.nom || "Produit sans nom"}
+        </Text>
+        <Text style={cardStyles.cardDesc} numberOfLines={3}>
+          {item.description}
+        </Text>
+
+        {/* Prix */}
+        <View style={cardStyles.priceRow}>
+          {hasDiscount && (
+            <Text style={cardStyles.oldPrice}>{item.prix} €</Text>
+          )}
+          <Text style={cardStyles.newPrice}>{item.prixPromo} €</Text>
+        </View>
+
+        {/* Actions (Rendues plus compactes et icôniques) */}
+        <View style={cardStyles.cardActions}>
+          <TouchableOpacity
+            style={cardStyles.actionButton}
+            onPress={() => editAction(item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={20} color={COLOR_PALETTE.primary} />
+            <Text style={cardStyles.actionButtonText}>Modifier</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[cardStyles.actionButton, cardStyles.deleteButton]}
+            onPress={() => deleteAction(item.id)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="trash-outline" size={20} color={COLOR_PALETTE.danger} />
+            <Text style={[cardStyles.actionButtonText, cardStyles.deleteButtonText]}>Supprimer</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+// ===================================================================
+//        COMPOSANT: PublicationFormModal (NOUVEAU)
+// ===================================================================
+const PublicationFormModal = ({ 
+  modalVisible, 
+  onClose, 
+  form, 
+  setForm, 
+  editingId, 
+  handleFormSubmit, 
+  submitting, 
+  pickImage 
+}) => {
+  const scrollViewRef = useRef(null);
+
+  // Le rendu du formulaire est déplacé ici (légèrement modifié pour le contexte Modal)
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={modalVisible}
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={modalStyles.centeredView}
+      >
+        <View style={modalStyles.modalView}>
+          <ScrollView
+            ref={scrollViewRef}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 20 }}
+          >
+            <View style={formStyles.form}>
+              <View style={formStyles.formHeader}>
+                <Text style={formStyles.formTitle}>
+                  {editingId ? "✏️ Modifier le produit" : "➕ Publier un nouveau produit"}
+                </Text>
+                <TouchableOpacity onPress={onClose} style={formStyles.closeBtn}>
+                  <Ionicons name="close-circle-outline" size={32} color={COLOR_PALETTE.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Image Picker */}
+              <TouchableOpacity
+                style={formStyles.imagePicker}
+                onPress={pickImage}
+                activeOpacity={0.7}
+              >
+                {form.image ? (
+                  <>
+                    <Image
+                      source={{ uri: form.image }}
+                      style={formStyles.formImage}
+                      resizeMode="cover"
+                    />
+                    <View style={formStyles.imageOverlay}>
+                      <Ionicons name="camera" size={24} color="#FFF" />
+                      <Text style={formStyles.changeImageText}>Changer l'image</Text>
+                    </View>
+                  </>
+                ) : (
+                  <View style={formStyles.imagePickerContent}>
+                    <Ionicons name="cloud-upload-outline" size={48} color={COLOR_PALETTE.primary} />
+                    <Text style={formStyles.imagePickerText}>
+                      Appuyez pour ajouter une image (16:9 recommandé)
+                    </Text>
+                    <Text style={formStyles.imagePickerSubtext}>JPG, PNG</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {/* Nom */}
+              <View style={formStyles.inputGroup}>
+                <Text style={formStyles.label}>Nom du produit (optionnel)</Text>
+                <TextInput
+                  placeholder="Ex: iPhone 15 Pro"
+                  style={formStyles.input}
+                  value={form.nom}
+                  onChangeText={(t) => setForm({ ...form, nom: t })}
+                />
+              </View>
+
+              {/* Description */}
+              <View style={formStyles.inputGroup}>
+                <Text style={formStyles.label}>
+                  Description <Text style={formStyles.required}>*</Text>
+                </Text>
+                <TextInput
+                  multiline
+                  placeholder="Décrivez votre produit... (Points clés, fonctionnalités)"
+                  style={[formStyles.input, formStyles.textArea]}
+                  value={form.description}
+                  onChangeText={(t) => setForm({ ...form, description: t })}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              {/* Prix et Prix Promo */}
+              <View style={formStyles.priceContainer}>
+                <View style={[formStyles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                  <Text style={formStyles.label}>Prix initial (€)</Text>
+                  <TextInput
+                    placeholder="99.00"
+                    style={formStyles.input}
+                    keyboardType="decimal-pad"
+                    value={form.prix}
+                    onChangeText={(t) => setForm({ ...form, prix: t.replace(',', '.') })}
+                  />
+                </View>
+
+                <View style={[formStyles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={formStyles.label}>
+                    Prix promo (€) <Text style={formStyles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    placeholder="79.00"
+                    style={[formStyles.input, { borderColor: COLOR_PALETTE.primary }]} // Mise en évidence du champ obligatoire
+                    keyboardType="decimal-pad"
+                    value={form.prixPromo}
+                    onChangeText={(t) => setForm({ ...form, prixPromo: t.replace(',', '.') })}
+                  />
+                </View>
+              </View>
+
+              {/* Bouton Submit */}
+              <TouchableOpacity
+                style={[formStyles.submitBtn, submitting && formStyles.submitBtnDisabled]}
+                onPress={handleFormSubmit}
+                disabled={submitting}
+                activeOpacity={0.8}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={editingId ? "save" : "send"}
+                      size={22}
+                      color="#FFF"
+                    />
+                    <Text style={formStyles.submitBtnText}>
+                      {editingId ? "Mettre à jour le produit" : "Publier le produit"}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+};
+
+
+// ===================================================================
+//        COMPOSANT PRINCIPAL (Mis à jour)
 // ===================================================================
 export default function PublicationScreen({ navigation }) {
   const [publications, setPublications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [formVisible, setFormVisible] = useState(false);
+  const [formVisible, setFormVisible] = useState(false); // Utilisé pour le Modal
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -53,10 +296,48 @@ export default function PublicationScreen({ navigation }) {
   });
 
   const flatListRef = useRef(null);
-  const scrollViewRef = useRef(null);
+
+  // Nouvelle fonction pour ouvrir le formulaire (maintenant le modal)
+  const openForm = (pub = null) => {
+    if (pub) {
+      // Mode édition
+      setForm({
+        nom: pub.nom || "",
+        description: pub.description || "",
+        prix: pub.prix?.toString() || "",
+        prixPromo: pub.prixPromo?.toString() || "",
+        image: pub.image || null,
+        imageFile: null,
+      });
+      setEditingId(pub.id);
+    } else {
+      // Mode ajout
+      resetFormState();
+    }
+    setFormVisible(true); // Ouvre le Modal
+  };
+  
+  // Fonction de fermeture et de réinitialisation pour le Modal
+  const resetForm = () => {
+    setFormVisible(false); // Ferme le Modal
+    setEditingId(null);
+    resetFormState();
+  };
+
+  const resetFormState = () => {
+    setForm({
+      nom: "",
+      description: "",
+      prix: "",
+      prixPromo: "",
+      image: null,
+      imageFile: null,
+    });
+  }
+
 
   // ===============================================================
-  //    IMAGE PICKER → CHOIX IMAGE
+  //    IMAGE PICKER → CHOIX IMAGE (Fonctionnalité inchangée)
   // ===============================================================
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -89,7 +370,7 @@ export default function PublicationScreen({ navigation }) {
   };
 
   // ===============================================================
-  //                       FETCH INIT
+  //             FETCH INIT (Fonctionnalité inchangée)
   // ===============================================================
   const getPublications = async () => {
     try {
@@ -104,7 +385,7 @@ export default function PublicationScreen({ navigation }) {
   };
 
   // ===============================================================
-  //                         USE EFFECT
+  //                  USE EFFECT (Fonctionnalité inchangée)
   // ===============================================================
   useEffect(() => {
     getPublications();
@@ -131,7 +412,7 @@ export default function PublicationScreen({ navigation }) {
   }, []);
 
   // ===============================================================
-  //                        CREATE PUBLICATION
+  //                CREATE PUBLICATION (Fonctionnalité mise à jour)
   // ===============================================================
   const createPublication = async () => {
     if (!form.description || !form.prixPromo) {
@@ -161,7 +442,7 @@ export default function PublicationScreen({ navigation }) {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      resetForm();
+      resetForm(); // Ferme le modal et réinitialise le formulaire
       Alert.alert("✅ Succès", "Publication créée avec succès !");
     } catch (err) {
       console.error(err.response?.data || err.message);
@@ -172,7 +453,7 @@ export default function PublicationScreen({ navigation }) {
   };
 
   // ===============================================================
-  //                        UPDATE PUBLICATION
+  //                UPDATE PUBLICATION (Fonctionnalité mise à jour)
   // ===============================================================
   const updatePublication = async (id) => {
     if (!form.description || !form.prixPromo) {
@@ -197,7 +478,7 @@ export default function PublicationScreen({ navigation }) {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      resetForm();
+      resetForm(); // Ferme le modal et réinitialise le formulaire
       Alert.alert("✅ Succès", "Publication modifiée avec succès !");
     } catch (err) {
       console.error(err.response?.data || err.message);
@@ -208,7 +489,7 @@ export default function PublicationScreen({ navigation }) {
   };
 
   // ===============================================================
-  //                        DELETE PUBLICATION
+  //                  DELETE PUBLICATION (Fonctionnalité inchangée)
   // ===============================================================
   const deletePublication = (id) => {
     Alert.alert(
@@ -233,24 +514,10 @@ export default function PublicationScreen({ navigation }) {
   };
 
   // ===============================================================
-  //                   EDIT PUBLICATION
+  //                 EDIT PUBLICATION (Utilise openForm)
   // ===============================================================
   const editPublication = (pub) => {
-    setForm({
-      nom: pub.nom || "",
-      description: pub.description || "",
-      prix: pub.prix?.toString() || "",
-      prixPromo: pub.prixPromo?.toString() || "",
-      image: pub.image || null,
-      imageFile: null,
-    });
-    setFormVisible(true);
-    setEditingId(pub.id);
-    
-    // Scroll vers le formulaire
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-    }, 100);
+    openForm(pub);
   };
 
   const handleFormSubmit = () => {
@@ -261,257 +528,53 @@ export default function PublicationScreen({ navigation }) {
     }
   };
 
-  const resetForm = () => {
-    setFormVisible(false);
-    setForm({
-      nom: "",
-      description: "",
-      prix: "",
-      prixPromo: "",
-      image: null,
-      imageFile: null,
-    });
-    setEditingId(null);
-  };
 
   // ===============================================================
-  //                        RENDER FORM
-  // ===============================================================
-  const renderForm = () => (
-    <View style={styles.form}>
-      <View style={styles.formHeader}>
-        <Text style={styles.formTitle}>
-          {editingId ? "✏️ Modifier la publication" : "➕ Nouvelle publication"}
-        </Text>
-        <TouchableOpacity onPress={resetForm} style={styles.closeBtn}>
-          <Ionicons name="close-circle" size={28} color={GRAY_TEXT} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Image Picker */}
-      <TouchableOpacity
-        style={styles.imagePicker}
-        onPress={pickImage}
-        activeOpacity={0.7}
-      >
-        {form.image ? (
-          <>
-            <Image
-              source={{ uri: form.image }}
-              style={styles.formImage}
-              resizeMode="cover"
-            />
-            <View style={styles.imageOverlay}>
-              <Ionicons name="camera" size={24} color="#FFF" />
-              <Text style={styles.changeImageText}>Changer l'image</Text>
-            </View>
-          </>
-        ) : (
-          <View style={styles.imagePickerContent}>
-            <Ionicons name="image-outline" size={48} color={PRIMARY} />
-            <Text style={styles.imagePickerText}>
-              Appuyez pour ajouter une image
-            </Text>
-            <Text style={styles.imagePickerSubtext}>JPG, PNG (max 5MB)</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-
-      {/* Nom */}
-      <View style={styles.inputGroup}>
-        <Text style={styles.label}>Nom du produit (optionnel)</Text>
-        <TextInput
-          placeholder="Ex: iPhone 15 Pro"
-          style={styles.input}
-          value={form.nom}
-          onChangeText={(t) => setForm({ ...form, nom: t })}
-        />
-      </View>
-
-      {/* Description */}
-      <View style={styles.inputGroup}>
-        <Text style={styles.label}>
-          Description <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          multiline
-          placeholder="Décrivez votre produit..."
-          style={[styles.input, styles.textArea]}
-          value={form.description}
-          onChangeText={(t) => setForm({ ...form, description: t })}
-          textAlignVertical="top"
-        />
-      </View>
-
-      {/* Prix et Prix Promo */}
-      <View style={styles.priceContainer}>
-        <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-          <Text style={styles.label}>Prix initial (€)</Text>
-          <TextInput
-            placeholder="99.00"
-            style={styles.input}
-            keyboardType="decimal-pad"
-            value={form.prix}
-            onChangeText={(t) => setForm({ ...form, prix: t })}
-          />
-        </View>
-
-        <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-          <Text style={styles.label}>
-            Prix promo (€) <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            placeholder="79.00"
-            style={styles.input}
-            keyboardType="decimal-pad"
-            value={form.prixPromo}
-            onChangeText={(t) => setForm({ ...form, prixPromo: t })}
-          />
-        </View>
-      </View>
-
-      {/* Bouton Submit */}
-      <TouchableOpacity
-        style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
-        onPress={handleFormSubmit}
-        disabled={submitting}
-        activeOpacity={0.8}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#FFF" />
-        ) : (
-          <>
-            <Ionicons
-              name={editingId ? "checkmark-circle" : "add-circle"}
-              size={22}
-              color="#FFF"
-            />
-            <Text style={styles.submitBtnText}>
-              {editingId ? "Mettre à jour" : "Publier"}
-            </Text>
-          </>
-        )}
-      </TouchableOpacity>
-    </View>
-  );
-
-  // ===============================================================
-  //                        PUBLICATION CARD
-  // ===============================================================
-  const PublicationCard = ({ item }) => {
-    const hasDiscount = item.prix && parseFloat(item.prix) > parseFloat(item.prixPromo);
-    const discountPercent = hasDiscount
-      ? Math.round(((item.prix - item.prixPromo) / item.prix) * 100)
-      : 0;
-
-    return (
-      <View style={styles.card}>
-        {/* Image */}
-        <View style={styles.cardImageContainer}>
-          {item.image ? (
-            <Image
-              source={{ uri: item.image }}
-              style={styles.cardImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.noImage}>
-              <Ionicons name="image-outline" size={60} color="#CBD5E1" />
-            </View>
-          )}
-          
-          {/* Badge de réduction */}
-          {hasDiscount && (
-            <View style={styles.discountBadge}>
-              <Text style={styles.discountText}>-{discountPercent}%</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Contenu */}
-        <View style={styles.cardBody}>
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {item.nom || "Produit sans nom"}
-          </Text>
-          <Text style={styles.cardDesc} numberOfLines={3}>
-            {item.description}
-          </Text>
-
-          {/* Prix */}
-          <View style={styles.priceRow}>
-            {hasDiscount && (
-              <Text style={styles.oldPrice}>{item.prix} €</Text>
-            )}
-            <Text style={styles.newPrice}>{item.prixPromo} €</Text>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.cardActions}>
-            <TouchableOpacity
-              style={styles.editBtn}
-              onPress={() => editPublication(item)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="create-outline" size={20} color={PRIMARY} />
-              <Text style={styles.editBtnText}>Modifier</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.deleteCardBtn}
-              onPress={() => deletePublication(item.id)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="trash-outline" size={20} color={DANGER} />
-              <Text style={styles.deleteBtnText}>Supprimer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  // ===============================================================
-  //                        EMPTY STATE
+  //                  EMPTY STATE (Amélioré visuellement)
   // ===============================================================
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Ionicons name="newspaper-outline" size={80} color="#CBD5E1" />
-      <Text style={styles.emptyTitle}>Aucune publication</Text>
+      <Ionicons name="pricetags-outline" size={80} color={COLOR_PALETTE.border} />
+      <Text style={styles.emptyTitle}>Rien à afficher ici</Text>
       <Text style={styles.emptyText}>
-        Commencez par créer votre première publication
+        Créez et gérez les offres spéciales de vos produits.
       </Text>
       <TouchableOpacity
         style={styles.emptyBtn}
-        onPress={() => setFormVisible(true)}
+        onPress={() => openForm()} // Utilise openForm
+        activeOpacity={0.8}
       >
         <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-        <Text style={styles.emptyBtnText}>Créer une publication</Text>
+        <Text style={styles.emptyBtnText}>Ajouter une publication</Text>
       </TouchableOpacity>
     </View>
   );
 
   // ===============================================================
-  //                        RENDER MAIN SCREEN
+  //                  RENDER MAIN SCREEN
   // ===============================================================
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <StatusBar barStyle="dark-content" backgroundColor={BG} />
+      <StatusBar barStyle="light-content" backgroundColor={COLOR_PALETTE.primary} /> 
       
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Header (Visuel plus impactant) */}
+      <View style={headerStyles.header}>
         <View>
-          <Text style={styles.headerTitle}>Publications</Text>
-          <Text style={styles.headerSubtitle}>
-            {publications.length} publication{publications.length > 1 ? "s" : ""}
+          <Text style={headerStyles.headerTitle}>Tableau de Bord des Offres</Text>
+          <Text style={headerStyles.headerSubtitle}>
+            Gérez vos {publications.length} publication{publications.length > 1 ? "s" : ""} active{publications.length > 1 ? "s" : ""}.
           </Text>
         </View>
 
         <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setFormVisible(!formVisible)}
+          style={headerStyles.addBtn}
+          onPress={() => {
+            if (formVisible) resetForm(); // Ferme le modal si déjà ouvert
+            else openForm(); // Ouvre le modal
+          }}
           activeOpacity={0.8}
         >
           <Ionicons
@@ -522,29 +585,37 @@ export default function PublicationScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Form */}
-      {formVisible && (
-        <ScrollView
-          ref={scrollViewRef}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {renderForm()}
-        </ScrollView>
-      )}
+      {/* MODAL du Formulaire */}
+      <PublicationFormModal
+        modalVisible={formVisible}
+        onClose={resetForm}
+        form={form}
+        setForm={setForm}
+        editingId={editingId}
+        handleFormSubmit={handleFormSubmit}
+        submitting={submitting}
+        pickImage={pickImage}
+      />
 
       {/* Liste des publications */}
+      <Text style={styles.listSectionTitle}>Publications en cours</Text>
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={PRIMARY} />
-          <Text style={styles.loadingText}>Chargement...</Text>
+          <ActivityIndicator size="large" color={COLOR_PALETTE.primary} />
+          <Text style={styles.loadingText}>Chargement des données...</Text>
         </View>
       ) : (
         <FlatList
           ref={flatListRef}
           data={publications}
           keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => <PublicationCard item={item} />}
+          renderItem={({ item }) => (
+            <PublicationCard 
+                item={item} 
+                editAction={editPublication} 
+                deleteAction={deletePublication} 
+            />
+          )}
           ListEmptyComponent={renderEmptyState}
           contentContainerStyle={
             publications.length === 0 ? styles.emptyListContainer : styles.listContent
@@ -557,61 +628,176 @@ export default function PublicationScreen({ navigation }) {
 }
 
 // ===================================================================
-//                       STYLES
+//         STYLES (Séparés par Composant pour la clarté)
 // ===================================================================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BG,
+    backgroundColor: COLOR_PALETTE.background,
+  },
+  listSectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLOR_PALETTE.textBase,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    marginTop: 5,
+  },
+  listContent: {
+    padding: 15,
+    paddingBottom: 40, // Espace pour le bas
   },
 
-  // HEADER
+  // LOADING
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 150,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: COLOR_PALETTE.textMuted,
+  },
+
+  // EMPTY STATE
+  emptyListContainer: {
+    flexGrow: 1, // Pour que EmptyState puisse se centrer
+    justifyContent: 'center',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+    backgroundColor: COLOR_PALETTE.cardBg,
+    margin: 15,
+    borderRadius: 16,
+    paddingVertical: 40,
+    borderWidth: 1,
+    borderColor: COLOR_PALETTE.border,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: COLOR_PALETTE.textBase,
+    marginTop: 20,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: COLOR_PALETTE.textMuted,
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  emptyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLOR_PALETTE.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    elevation: 3,
+  },
+  emptyBtnText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+});
+
+// ===================================================================
+//         STYLES - MODAL (NOUVEAU)
+// ===================================================================
+const modalStyles = StyleSheet.create({
+  centeredView: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: 'rgba(0,0,0,0.5)', // Arrière-plan sombre
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: COLOR_PALETTE.background, // Le fond du modal lui-même peut être la couleur de fond
+    borderRadius: 20,
+    padding: 0, // Les paddings seront gérés par le formStyles.form
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    maxHeight: '85%', // Limite la hauteur du modal
+    width: SCREEN_WIDTH * 0.9, // Prend 90% de la largeur de l'écran
+  },
+});
+
+// ===================================================================
+//         STYLES - HEADER (INCHANGÉ)
+// ===================================================================
+const headerStyles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 20,
     paddingBottom: 15,
-    backgroundColor: CARD_BG,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    backgroundColor: COLOR_PALETTE.primary,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
+    elevation: 5,
+    shadowColor: COLOR_PALETTE.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#0F172A",
+    color: "#FFF",
   },
   headerSubtitle: {
     fontSize: 14,
-    color: GRAY_TEXT,
+    color: 'rgba(255, 255, 255, 0.8)',
     marginTop: 2,
   },
   addBtn: {
-    backgroundColor: PRIMARY,
+    backgroundColor: COLOR_PALETTE.secondary, // Couleur d'accentuation
     width: 50,
     height: 50,
     borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
-    shadowColor: PRIMARY,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    elevation: 6,
+    shadowColor: COLOR_PALETTE.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 5,
   },
+});
 
-  // FORM
+// ===================================================================
+//         STYLES - FORM (Adaptés pour le Modal)
+// ===================================================================
+const formStyles = StyleSheet.create({
   form: {
-    margin: 15,
+    // Les marges de 15 sont retirées ici car elles sont gérées par le modalStyles.modalView
+    margin: 0, 
     padding: 20,
     borderRadius: 16,
-    backgroundColor: CARD_BG,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    backgroundColor: COLOR_PALETTE.cardBg, // Fond du formulaire à l'intérieur du modal
+    // Les bordures et ombres sont déplacées vers modalStyles.modalView
+    borderWidth: 0, 
+    borderColor: 'transparent',
+    elevation: 0,
+    shadowColor: 'transparent',
+    width: SCREEN_WIDTH * 0.9 - 40, // Adaptation à la taille du modal
   },
   formHeader: {
     flexDirection: "row",
@@ -620,9 +806,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   formTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#0F172A",
+    color: COLOR_PALETTE.textBase,
   },
   closeBtn: {
     padding: 4,
@@ -635,23 +821,24 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#334155",
+    color: COLOR_PALETTE.textMuted,
     marginBottom: 8,
   },
   required: {
-    color: DANGER,
+    color: COLOR_PALETTE.danger,
   },
   input: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: COLOR_PALETTE.background,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: COLOR_PALETTE.border,
     padding: 14,
     borderRadius: 10,
     fontSize: 16,
-    color: "#0F172A",
+    color: COLOR_PALETTE.textBase,
+    fontWeight: "500",
   },
   textArea: {
-    height: 100,
+    height: 120,
     textAlignVertical: "top",
   },
   priceContainer: {
@@ -661,7 +848,7 @@ const styles = StyleSheet.create({
 
   // IMAGE PICKER
   imagePicker: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: COLOR_PALETTE.background,
     height: 200,
     borderRadius: 12,
     marginBottom: 20,
@@ -669,7 +856,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "#E2E8F0",
+    borderColor: COLOR_PALETTE.border,
     borderStyle: "dashed",
   },
   formImage: {
@@ -695,77 +882,82 @@ const styles = StyleSheet.create({
   },
   imagePickerContent: {
     alignItems: "center",
+    padding: 10,
   },
   imagePickerText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    color: "#334155",
+    color: COLOR_PALETTE.textBase,
     marginTop: 12,
+    textAlign: 'center',
   },
   imagePickerSubtext: {
     fontSize: 13,
-    color: GRAY_TEXT,
+    color: COLOR_PALETTE.textMuted,
     marginTop: 4,
   },
 
   // SUBMIT BUTTON
   submitBtn: {
-    backgroundColor: PRIMARY,
+    backgroundColor: COLOR_PALETTE.primary,
     padding: 16,
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    elevation: 3,
-    shadowColor: PRIMARY,
-    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+    shadowColor: COLOR_PALETTE.primary,
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowRadius: 5,
   },
   submitBtnDisabled: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   submitBtnText: {
     color: "#FFF",
     fontSize: 17,
     fontWeight: "700",
-    marginLeft: 8,
+    marginLeft: 10,
   },
+});
 
-  // PUBLICATION CARD
-  listContent: {
-    padding: 15,
-  },
+// ===================================================================
+//         STYLES - CARD (INCHANGÉ)
+// ===================================================================
+const cardStyles = StyleSheet.create({
   card: {
     marginBottom: 16,
-    backgroundColor: CARD_BG,
+    backgroundColor: COLOR_PALETTE.cardBg,
     borderRadius: 16,
     overflow: "hidden",
-    elevation: 3,
+    elevation: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    borderWidth: 1,
+    borderColor: COLOR_PALETTE.border,
   },
   cardImageContainer: {
     position: "relative",
   },
   cardImage: {
     width: "100%",
-    height: 200,
+    height: 180, // Légèrement plus court pour un look moderne
   },
   noImage: {
     width: "100%",
-    height: 200,
+    height: 180,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: COLOR_PALETTE.background,
   },
   discountBadge: {
     position: "absolute",
     top: 12,
     right: 12,
-    backgroundColor: DANGER,
+    backgroundColor: COLOR_PALETTE.danger,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -779,121 +971,64 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#0F172A",
+    fontSize: 20,
+    fontWeight: "800",
+    color: COLOR_PALETTE.textBase,
     marginBottom: 6,
   },
   cardDesc: {
-    color: GRAY_TEXT,
+    color: COLOR_PALETTE.textMuted,
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
   },
   priceRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "baseline", // Alignement pour rendre les prix plus lisibles
     marginBottom: 16,
   },
   oldPrice: {
     textDecorationLine: "line-through",
-    color: "#94A3B8",
+    color: COLOR_PALETTE.textMuted,
     fontSize: 16,
-    marginRight: 10,
+    marginRight: 12,
+    fontWeight: '500',
   },
   newPrice: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: PRIMARY,
+    fontSize: 28, // Prix promo plus grand
+    fontWeight: "900", // Très gras
+    color: COLOR_PALETTE.primary,
   },
 
   // CARD ACTIONS
   cardActions: {
     flexDirection: "row",
+    justifyContent: 'space-between',
     gap: 10,
+    marginTop: 8, // Ajout d'un peu d'espace avec le prix
   },
-  editBtn: {
+  actionButton: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#EEF2FF", // Light Indigo
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DBEAFE",
+    borderColor: "#E0E7FF",
   },
-  editBtnText: {
-    color: PRIMARY,
+  deleteButton: {
+    backgroundColor: "#FEF2F2", // Light Red
+    borderColor: "#FEE2E2",
+  },
+  actionButtonText: {
+    color: COLOR_PALETTE.primary,
     fontSize: 15,
     fontWeight: "600",
     marginLeft: 6,
   },
-  deleteCardBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FEF2F2",
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#FECACA",
-  },
-  deleteBtnText: {
-    color: DANGER,
-    fontSize: 15,
-    fontWeight: "600",
-    marginLeft: 6,
-  },
-
-  // LOADING
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: GRAY_TEXT,
-  },
-
-  // EMPTY STATE
-  emptyListContainer: {
-    flex: 1,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#334155",
-    marginTop: 20,
-  },
-  emptyText: {
-    fontSize: 15,
-    color: GRAY_TEXT,
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  emptyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  emptyBtnText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
+  deleteButtonText: {
+    color: COLOR_PALETTE.danger,
+  }
 });
